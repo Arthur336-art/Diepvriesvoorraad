@@ -4,7 +4,7 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 
 ## Gebruik
 
-- Tik op Erin en scan de barcode. De app zoekt de productnaam op via Open Food Facts en onthoudt het product voor de volgende keer.
+- Tik op Erin en scan de barcode. Lukt live scannen niet, tik dan op "Foto maken van de barcode". De app zoekt de productnaam op via Open Food Facts en onthoudt het product voor de volgende keer.
 - Kies diepvries of frigo en de soort. Elke soort heeft een richtlijn voor houdbaarheid (zie Menu).
 - Staat er een THT-datum op de verpakking, vul die in. In de frigo telt die datum. In de diepvries telt de langste van THT en richtlijn.
 - Tik op Eruit en scan opnieuw. Bij meerdere stuks gaat er één af. Heb je hetzelfde product meerdere keren, dan kies je welke.

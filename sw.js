@@ -1,7 +1,7 @@
-const CACHE = 'dvv-v1';
+const CACHE = 'dvv-v2';
 const FILES = [
   './', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg',
-  'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
+  'vendor/barcode-detector.js', 'vendor/zxing_reader.wasm',
 ];
 
 self.addEventListener('install', e => {

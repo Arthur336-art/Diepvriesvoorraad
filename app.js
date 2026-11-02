@@ -192,55 +192,114 @@ function toast(msg) {
 
 // ---------- Scanner ----------
 
-let scanner = null;
+const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
+let stream = null;
+let loopTimer = null;
+let detectorPromise = null;
 let scanBusy = false;
+
+// Ingebouwde scanner (Android Chrome) als die EAN kent, anders de meegeleverde ZXing-scanner (iPhone).
+function getDetector() {
+  if (!detectorPromise) detectorPromise = (async () => {
+    if ('BarcodeDetector' in window) {
+      try {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        if (supported.includes('ean_13')) {
+          return new window.BarcodeDetector({ formats: FORMATS.filter(f => supported.includes(f)) });
+        }
+      } catch {}
+    }
+    const api = window.BarcodeDetectionAPI;
+    if (!api) throw new Error('scanner niet geladen');
+    const wasm = new URL('vendor/zxing_reader.wasm', location.href).href;
+    await api.prepareZXingModule({
+      overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? wasm : prefix + path) },
+      fireImmediately: true,
+    });
+    return new api.BarcodeDetector({ formats: FORMATS });
+  })();
+  detectorPromise.catch(() => { detectorPromise = null; });
+  return detectorPromise;
+}
 
 async function openScan(mode) {
   state.mode = mode;
   $('#scanTitle').textContent = mode === 'in' ? 'Scan wat erin gaat' : 'Scan wat eruit gaat';
   $('#noBarcode').textContent = mode === 'in' ? 'Zonder barcode toevoegen' : 'Kies uit de lijst';
   $('#manualCode').value = '';
-  $('#scanMsg').textContent = 'Richt de camera op de barcode.';
+  $('#scanMsg').textContent = 'Camera starten...';
   $('#scanDlg').showModal();
   scanBusy = false;
   await startCamera();
 }
 
 async function startCamera() {
-  if (!window.Html5Qrcode) {
-    $('#scanMsg').textContent = 'Scanner niet geladen. Typ de barcode of voeg toe zonder barcode.';
+  const video = $('#video');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    });
+  } catch {
+    stream = null;
+    $('#scanMsg').textContent = 'Geen toegang tot de camera. Maak een foto van de barcode of typ hem hieronder.';
     return;
   }
+  if (!$('#scanDlg').open) { stopCamera(); return; }
+  const track = stream.getVideoTracks()[0];
+  try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+  video.srcObject = stream;
+  try { await video.play(); } catch {}
+  let detector;
   try {
-    const formats = [
-      'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'ITF', 'QR_CODE',
-    ].map(f => Html5QrcodeSupportedFormats[f]);
-    scanner = new Html5Qrcode('reader', {
-      formatsToSupport: formats,
-      useBarCodeDetectorIfSupported: true,
-      verbose: false,
-    });
-    await scanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.45) }) },
-      code => onCode(code),
-      () => {}
-    );
-  } catch (e) {
-    scanner = null;
-    $('#scanMsg').textContent = 'Geen toegang tot de camera. Typ de barcode hieronder.';
+    detector = await getDetector();
+  } catch {
+    $('#scanMsg').textContent = 'Scanner laden mislukt. Typ de barcode hieronder.';
+    return;
   }
+  $('#scanMsg').textContent = 'Hou de barcode in het kader, 10 à 15 cm van de camera.';
+  const tick = async () => {
+    if (!stream || scanBusy) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      try {
+        const found = await detector.detect(video);
+        const hit = found.find(b => b.rawValue);
+        if (hit) { onCode(hit.rawValue); return; }
+      } catch {}
+    }
+    loopTimer = setTimeout(tick, 150);
+  };
+  tick();
 }
 
-async function stopCamera() {
-  if (!scanner) return;
-  try { if (scanner.isScanning) await scanner.stop(); scanner.clear(); } catch {}
-  scanner = null;
+function stopCamera() {
+  clearTimeout(loopTimer);
+  loopTimer = null;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null;
+  const video = $('#video');
+  video.pause();
+  video.srcObject = null;
 }
 
 async function closeScan() {
-  await stopCamera();
+  stopCamera();
   if ($('#scanDlg').open) $('#scanDlg').close();
+}
+
+// Reserve: foto van de barcode. Een foto is scherper dan het live beeld.
+async function scanPhoto(file) {
+  $('#scanMsg').textContent = 'Foto bekijken...';
+  try {
+    const detector = await getDetector();
+    const bitmap = await createImageBitmap(file);
+    const found = await detector.detect(bitmap);
+    const hit = found.find(b => b.rawValue);
+    if (hit) { onCode(hit.rawValue); return; }
+    $('#scanMsg').textContent = 'Geen barcode gevonden. Neem de foto van dichterbij en zorg dat hij scherp is.';
+  } catch {
+    $('#scanMsg').textContent = 'Foto lezen mislukt. Typ de barcode hieronder.';
+  }
 }
 
 async function onCode(code) {
@@ -506,6 +565,11 @@ function init() {
   document.querySelectorAll('[data-close]').forEach(b =>
     b.addEventListener('click', () => b.closest('dialog').close()));
   $('#scanDlg').addEventListener('close', stopCamera);
+  $('#photoInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) scanPhoto(file);
+  });
 
   const f = $('#itemForm');
   f.addEventListener('submit', saveItem);
@@ -530,6 +594,8 @@ function init() {
 
   render();
   notifyOnce();
+  // Scanner al op de achtergrond klaarzetten, zodat hij meteen werkt.
+  setTimeout(() => getDetector().catch(() => {}), 500);
   // Status opnieuw berekenen als de app terug open komt (bv. volgende dag).
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); notifyOnce(); } });
 

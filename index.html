@@ -9,7 +9,7 @@
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="stylesheet" href="style.css">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="vendor/barcode-detector.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
@@ -43,12 +43,18 @@
       <h2 id="scanTitle">Scan</h2>
       <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
     </div>
-    <div id="reader"></div>
+    <div id="reader">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="aim"></div>
+    </div>
     <p id="scanMsg" class="muted"></p>
     <form id="manualForm" class="row">
       <input id="manualCode" inputmode="numeric" placeholder="Barcode typen">
       <button type="submit">OK</button>
     </form>
+    <label class="secondary full file-btn">📷 Foto maken van de barcode
+      <input id="photoInput" type="file" accept="image/*" capture="environment" hidden>
+    </label>
     <button id="noBarcode" class="secondary full">Zonder barcode</button>
   </dialog>
 
