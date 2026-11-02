@@ -20,6 +20,7 @@ const CATEGORIES = [
   { id: 'ijs',        label: 'IJs',                     diepvries: 60,  frigo: 1 },
   { id: 'kantenklaar',label: 'Kant-en-klaar product',   diepvries: 180, frigo: 5 },
   { id: 'aardappel',  label: 'Frieten / kroketten',     diepvries: 240, frigo: 3 },
+  { id: 'vega',       label: 'Vegetarisch (tofu, veggie)', diepvries: 180, frigo: 5 },
   { id: 'saus',       label: 'Dips / sauzen / smeersels', diepvries: 90, frigo: 14 },
   { id: 'eieren',     label: 'Eieren',                  diepvries: 270, frigo: 28 },
   { id: 'ander',      label: 'Ander',                   diepvries: 180, frigo: 5 },
@@ -30,6 +31,7 @@ const CAT = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
 // TAG_RULES kijken naar de categorieën van Open Food Facts (Engels, bv. en:frozen-chicken-breasts).
 // NAME_RULES kijken naar de productnaam (NL, FR, EN). Een woord met ^ moet aan het begin van een woord staan.
 const TAG_RULES = [
+  ['vega',       ['meat-analogue', 'meat-substitute', 'meat-alternative', 'vegetarian-burger', 'vegan-burger', 'tofu', 'tempeh', 'seitan', 'falafel']],
   ['ijs',        ['ice-cream', 'frozen-dessert', 'sorbet', 'glaces']],
   ['soep',       ['soup']],
   ['saus',       ['sauces', 'dips', 'spreads', 'mayonnaise', 'ketchup', 'hummus', 'pesto']],
@@ -51,6 +53,7 @@ const TAG_RULES = [
   ['fruit',      ['fruit', 'berr', 'strawberr', 'raspberr', 'mango', 'cherr']],
 ];
 const NAME_RULES = [
+  ['vega',       ['vegetari', 'veggie', 'vegan', 'tofu', 'tempeh', 'seitan', 'quorn', 'falafel', 'plantaardig', 'vegaburger', 'vega ', '^vega$', 'garden gourmet', 'beyond meat']],
   ['ijs',        ['roomijs', '^ijsje', '^ijs ', '^ijs$', 'sorbet', '^glace', '^ice cream', 'magnum', 'cornetto']],
   ['soep',       ['soep', 'soupe', '^soup', 'bouillon']],
   ['saus',       ['saus', '^sauce', '^dip', 'mayonaise', 'mayonnaise', 'ketchup', 'hummus', 'pesto', 'tapenade', 'smeerpasta']],
@@ -88,6 +91,7 @@ const state = {
   filter: 'alles',
   query: '',
   mode: 'in',
+  batch: null,
   editingId: null,
 };
 
@@ -293,6 +297,9 @@ async function openScan(mode) {
   $('#noBarcode').textContent = mode === 'in' ? 'Zonder barcode toevoegen' : 'Kies uit de lijst';
   $('#manualCode').value = '';
   $('#scanMsg').textContent = 'Camera starten...';
+  state.batch = null;
+  $('#batchToggle').classList.toggle('hidden', mode !== 'in');
+  renderBatch();
   $('#scanDlg').showModal();
   scanBusy = false;
   await startCamera();
@@ -329,7 +336,14 @@ async function startCamera() {
       try {
         const found = await detector.detect(video);
         const hit = found.find(b => b.rawValue);
-        if (hit) { onCode(hit.rawValue); return; }
+        if (hit) {
+          onCode(hit.rawValue);
+          if (!state.batch) return;
+          // Snel scannen: blijven kijken. addToBatch negeert dezelfde barcode zolang hij in beeld blijft.
+          loopTimer = setTimeout(tick, 300);
+          return;
+        }
+        emptyTicks += 1;
       } catch {}
     }
     loopTimer = setTimeout(tick, 150);
@@ -367,7 +381,8 @@ async function scanPhoto(file) {
   }
 }
 
-async function onCode(code) {
+async function onCode(code, typed = false) {
+  if (state.batch && state.mode === 'in') { addToBatch(String(code).trim(), typed); return; }
   if (scanBusy) return;
   scanBusy = true;
   code = String(code).trim();
@@ -375,6 +390,144 @@ async function onCode(code) {
   await closeScan();
   if (state.mode === 'in') await handleIn(code);
   else handleOut(code);
+}
+
+// ---------- Snel scannen ----------
+// De camera blijft open. Elke scan komt in een lijst; op het einde sla je alles in één keer op.
+
+let lastBatchCode = '';
+let emptyTicks = 0;   // aantal keer na elkaar dat de camera geen barcode zag
+
+function toggleBatch() {
+  state.batch = state.batch ? null : [];
+  renderBatch();
+  if (state.batch) $('#scanMsg').textContent = 'Scan het ene product na het andere. Tik op Alles opslaan als je klaar bent.';
+}
+
+// Dezelfde barcode telt pas opnieuw als hij tussendoor uit beeld was.
+// Zo telt een product dat je stil voor de camera houdt maar één keer.
+function addToBatch(code, typed = false) {
+  if (!code) return;
+  if (!typed) {
+    const outOfView = emptyTicks >= 2;
+    emptyTicks = 0;
+    if (code === lastBatchCode && !outOfView) return;
+    lastBatchCode = code;
+  }
+  if (navigator.vibrate) navigator.vibrate(60);
+  const same = state.batch.find(e => e.barcode === code);
+  if (same) {
+    same.qty += 1;
+    $('#scanMsg').textContent = `${same.name || 'Product'}: nu ${same.qty} stuks`;
+    renderBatch();
+    return;
+  }
+  const known = state.products[code];
+  const entry = {
+    key: uid(),
+    barcode: code,
+    name: known?.name || '',
+    category: known?.category || 'ander',
+    location: known?.location || (state.filter === 'frigo' ? 'frigo' : 'diepvries'),
+    qty: 1,
+    loading: !known,
+  };
+  state.batch.unshift(entry);
+  $('#scanMsg').textContent = `Gescand: ${entry.name || code}`;
+  renderBatch();
+  if (!known) {
+    lookup(code, true).then(prod => {
+      entry.loading = false;
+      if (prod) {
+        if (!entry.name) entry.name = prod.name;
+        if (prod.category) entry.category = prod.category;
+        if (prod.location) entry.location = prod.location;
+        $('#scanMsg').textContent = `Gescand: ${entry.name}`;
+      } else {
+        $('#scanMsg').textContent = `Niet gevonden: ${code}. Typ zelf een naam.`;
+      }
+      renderBatch();
+    });
+  }
+}
+
+function renderBatch() {
+  const on = !!state.batch;
+  $('#batchToggle').classList.toggle('on', on);
+  $('#batchToggle').textContent = on ? '⚡ Snel scannen staat aan' : '⚡ Snel scannen: meerdere na elkaar';
+  $('#batchPanel').classList.toggle('hidden', !on);
+  $('#scanDlg').classList.toggle('batch', on);
+  $('#noBarcode').classList.toggle('hidden', on);
+  if (!on) return;
+  const box = $('#batchList');
+  box.replaceChildren();
+  if (!state.batch.length) {
+    const p = document.createElement('p');
+    p.className = 'muted';
+    p.textContent = 'Nog niets gescand.';
+    box.append(p);
+  }
+  for (const e of state.batch) {
+    const row = document.createElement('div');
+    row.className = 'batch-row' + (!e.name && !e.loading && e.missing ? ' missing' : '');
+    row.innerHTML = `
+      <button type="button" class="loc-btn" aria-label="Diepvries of frigo"></button>
+      <input placeholder="Naam" autocomplete="off">
+      <span class="qty"><button type="button">−</button><b></b><button type="button">+</button></span>
+      <button type="button" class="del" aria-label="Verwijderen">✕</button>
+      <select></select>`;
+    const [locBtn, minus, plus, del] = [row.querySelector('.loc-btn'), ...row.querySelectorAll('.qty button'), row.querySelector('.del')];
+    locBtn.textContent = LOC_ICON[e.location];
+    locBtn.addEventListener('click', () => { e.location = e.location === 'diepvries' ? 'frigo' : 'diepvries'; renderBatch(); });
+    const input = row.querySelector('input');
+    input.value = e.name;
+    if (e.loading) input.placeholder = 'Opzoeken...';
+    input.addEventListener('input', () => { e.name = input.value; e.missing = false; });
+    input.addEventListener('change', () => {
+      if (e.category === 'ander') { const g = guessCategory(e.name); if (g) { e.category = g; renderBatch(); } }
+    });
+    row.querySelector('.qty b').textContent = e.qty;
+    minus.addEventListener('click', () => { if (e.qty > 1) { e.qty -= 1; renderBatch(); } });
+    plus.addEventListener('click', () => { e.qty += 1; renderBatch(); });
+    del.addEventListener('click', () => { state.batch = state.batch.filter(x => x !== e); renderBatch(); });
+    const sel = row.querySelector('select');
+    sel.replaceChildren(...CATEGORIES.map(c => new Option(c.label, c.id)));
+    sel.value = e.category;
+    sel.addEventListener('change', () => { e.category = sel.value; });
+    box.append(row);
+  }
+  const n = state.batch.reduce((t, e) => t + e.qty, 0);
+  $('#batchSave').textContent = n ? `Alles opslaan (${n})` : 'Alles opslaan';
+  $('#batchSave').disabled = !n;
+}
+
+async function saveBatch() {
+  const list = state.batch || [];
+  const missing = list.filter(e => !e.name.trim());
+  if (missing.length) {
+    missing.forEach(e => { e.missing = true; });
+    renderBatch();
+    $('#scanMsg').textContent = `Vul nog ${missing.length === 1 ? 'één naam' : missing.length + ' namen'} in (rood omrand).`;
+    return;
+  }
+  const added = toISO(today());
+  for (const e of list.slice().reverse()) {
+    const data = { barcode: e.barcode, name: e.name.trim(), location: e.location, category: e.category, qty: e.qty, added, expiry: '' };
+    state.items.push({ id: uid(), ...data });
+    if (e.barcode) state.products[e.barcode] = { name: data.name, category: data.category, location: data.location };
+  }
+  const n = list.reduce((t, e) => t + e.qty, 0);
+  state.batch = null;
+  save();
+  await closeScan();
+  render();
+  toast(`${n} ${n === 1 ? 'product' : 'producten'} opgeslagen`);
+}
+
+// Niet per ongeluk een halve lijst kwijtspelen.
+function confirmDropBatch() {
+  if (!state.batch || !state.batch.length) return true;
+  return confirm(`Je hebt ${state.batch.length} gescande producten nog niet opgeslagen. Toch sluiten?`);
 }
 
 // ---------- Erin ----------
@@ -414,11 +567,12 @@ async function fetchProduct(code) {
 }
 
 // Zoekt het product op. Geeft { name, category, location } of null.
-async function lookup(code) {
+async function lookup(code, quiet = false) {
+  const say = msg => { if (!quiet) toast(msg); };
   let p;
   try { p = await fetchProduct(code); }
-  catch { toast('Geen verbinding, typ zelf een naam'); return null; }
-  if (!p) { toast('Product niet gevonden, typ zelf een naam'); return null; }
+  catch { say('Geen verbinding, typ zelf een naam'); return null; }
+  if (!p) { say('Product niet gevonden, typ zelf een naam'); return null; }
   const base = (p.product_name_nl || p.product_name || p.product_name_fr || p.product_name_en ||
     p.generic_name_nl || p.generic_name || '').trim();
   const brand = (p.brands || '').split(',')[0].trim();
@@ -427,7 +581,7 @@ async function lookup(code) {
   const tags = [...(p.categories_tags || []), ...(p.food_groups_tags || [])];
   const nameForGuess = [base, p.generic_name_nl, p.generic_name].filter(Boolean).join(' ');
   const category = guessCategory(nameForGuess, tags);
-  if (!name && !category) { toast('Product niet gevonden, typ zelf een naam'); return null; }
+  if (!name && !category) { say('Product niet gevonden, typ zelf een naam'); return null; }
   return { name, category, location: guessLocation(tags, category), size: (p.quantity || '').trim() };
 }
 
@@ -815,57 +969,110 @@ async function shareShopping() {
 
 // ---------- Wat kan ik koken ----------
 
+const MEAT_CATS = ['rundvlees', 'varken', 'gehakt', 'gevogelte', 'beleg'];
+const FISH_CATS = ['vis_vet', 'vis_mager', 'schaaldier'];
+const DIET_ALLOWED = { veg: ['veg'], fish: ['veg', 'fish'], meat: ['veg', 'fish', 'meat'] };
+const DIET_LABEL = { veg: 'vegetarisch', fish: 'vis en vegetarisch', meat: 'alles' };
+const DIET_ICON = { veg: '🥦', fish: '🐟', meat: '🥩' };
+
+// Eetstijl afleiden uit wat er in je diepvries en frigo ligt.
+function autoDiet() {
+  if (state.items.some(i => MEAT_CATS.includes(i.category))) return 'meat';
+  if (state.items.some(i => FISH_CATS.includes(i.category))) return 'fish';
+  return 'veg';
+}
+function dietChoice() { return lsGet('dvv.diet') || 'auto'; }
+function currentDiet() { const c = dietChoice(); return c === 'auto' ? autoDiet() : c; }
+
+// Getal dat elke dag anders is, zodat je elke dag andere nieuwe gerechten ziet.
+function dailyRank(name) {
+  let h = 0;
+  for (const ch of name + toISO(today())) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+
 // Score per gerecht: producten die te lang liggen tellen het zwaarst.
-function suggestRecipes() {
+function suggestRecipes(diet) {
   const weight = { bad: 5, warn: 3, ok: 1 };
-  const stock = state.items.map(i => ({ ...i, s: status(i) }));
-  const out = [];
-  for (const r of RECIPES) {
-    const mains = stock.filter(i => r.main.includes(i.category));
-    if (!mains.length) continue;
-    const extras = stock.filter(i => r.extra.includes(i.category) && !mains.includes(i));
+  const banned = diet === 'veg' ? [...MEAT_CATS, ...FISH_CATS] : diet === 'fish' ? MEAT_CATS : [];
+  const stock = state.items.filter(i => !banned.includes(i.category)).map(i => ({ ...i, s: status(i) }));
+  const allowed = RECIPES.filter(r => DIET_ALLOWED[diet].includes(r.diet));
+  const pick = list => {
     // Per soort maar één product laten meetellen, het dringendste.
-    const pick = list => {
-      const best = {};
-      for (const i of list) if (!best[i.category] || i.s.left < best[i.category].s.left) best[i.category] = i;
-      return Object.values(best);
-    };
-    const used = [...pick(mains), ...pick(extras)];
-    const score = used.reduce((n, i) => n + weight[i.s.level] * (mains.includes(i) ? 2 : 1), 0);
-    const urgent = used.some(i => i.s.level !== 'ok');
-    out.push({ r, used: used.sort((a, b) => a.s.left - b.s.left), score: score + (urgent ? 100 : 0) });
+    const best = {};
+    for (const i of list) if (!best[i.category] || i.s.left < best[i.category].s.left) best[i.category] = i;
+    return Object.values(best);
+  };
+  const have = [];
+  const discover = [];
+  for (const r of allowed) {
+    const mains = stock.filter(i => r.main.includes(i.category));
+    const extras = pick(stock.filter(i => r.extra.includes(i.category) && !mains.includes(i)));
+    if (mains.length) {
+      const used = [...pick(mains), ...extras];
+      const score = used.reduce((n, i) => n + weight[i.s.level] * (mains.includes(i) ? 2 : 1), 0);
+      const urgent = used.some(i => i.s.level !== 'ok');
+      have.push({ r, used: used.sort((a, b) => a.s.left - b.s.left), score: score + (urgent ? 100 : 0) });
+    } else {
+      discover.push({ r, used: extras, score: extras.length * 1000 + (dailyRank(r.name) % 1000) });
+    }
   }
-  return out.sort((a, b) => b.score - a.score).slice(0, 8);
+  return {
+    have: have.sort((a, b) => b.score - a.score).slice(0, 10),
+    discover: discover.sort((a, b) => b.score - a.score).slice(0, 8),
+  };
+}
+
+function recipeCard({ r, used }, diet, missing) {
+  const card = document.createElement('div');
+  card.className = 'recipe';
+  card.innerHTML = '<h4><span></span><span class="diet"></span></h4><div class="chips"></div><p class="need hidden"></p><p class="tip"></p><a target="_blank" rel="noopener">Recept zoeken →</a>';
+  card.querySelector('h4 span').textContent = r.name;
+  card.querySelector('.diet').textContent = `${DIET_ICON[r.diet]} ${{ veg: 'vegetarisch', fish: 'vis', meat: 'vlees' }[r.diet]}`;
+  const chips = card.querySelector('.chips');
+  for (const i of used) {
+    const c = document.createElement('span');
+    c.className = `badge ${i.s.level}`;
+    c.textContent = `${LOC_ICON[i.location]} ${i.name}`;
+    chips.append(c);
+  }
+  if (missing) {
+    const need = card.querySelector('.need');
+    need.classList.remove('hidden');
+    need.textContent = 'Nog kopen: ' + r.main.map(c => CAT[c].label.toLowerCase()).join(' of ');
+  }
+  card.querySelector('.tip').textContent = r.tip;
+  const q = `recept ${r.name}${diet === 'veg' && !/vegetari|veggie/i.test(r.name) ? ' vegetarisch' : ''}`;
+  card.querySelector('a').href = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  return card;
 }
 
 function renderCook() {
+  const choice = dietChoice();
+  const diet = currentDiet();
+  document.querySelectorAll('#dietTabs button').forEach(b => b.classList.toggle('active', b.dataset.diet === choice));
+  $('#dietInfo').textContent = choice === 'auto'
+    ? (state.items.length
+      ? `Op basis van je voorraad: ${DIET_LABEL[diet]}. Wat eerst op moet staat bovenaan.`
+      : 'Wat eerst op moet staat bovenaan.')
+    : `Je ziet alleen gerechten: ${DIET_LABEL[diet]}.`;
   const box = $('#cookList');
   box.replaceChildren();
-  const list = suggestRecipes();
-  if (!list.length) {
+  const { have, discover } = suggestRecipes(diet);
+  const head = text => { const h = document.createElement('h3'); h.className = 'cook-head'; h.textContent = text; box.append(h); };
+  head('Met wat je hebt');
+  if (!have.length) {
     const p = document.createElement('p');
-    p.className = 'empty';
+    p.className = 'muted';
     p.textContent = state.items.length
       ? 'Geen gerecht gevonden met wat je hebt. Kies bij je producten een soort, dan vindt de app meer.'
       : 'Je voorraad is leeg.';
     box.append(p);
-    return;
   }
-  for (const { r, used } of list) {
-    const card = document.createElement('div');
-    card.className = 'recipe';
-    card.innerHTML = '<h4></h4><div class="chips"></div><p></p><a target="_blank" rel="noopener">Recept zoeken →</a>';
-    card.querySelector('h4').textContent = r.name;
-    const chips = card.querySelector('.chips');
-    for (const i of used) {
-      const c = document.createElement('span');
-      c.className = `badge ${i.s.level}`;
-      c.textContent = `${LOC_ICON[i.location]} ${i.name}`;
-      chips.append(c);
-    }
-    card.querySelector('p').textContent = r.tip;
-    card.querySelector('a').href = `https://www.google.com/search?q=${encodeURIComponent('recept ' + r.name)}`;
-    box.append(card);
+  for (const x of have) box.append(recipeCard(x, diet, false));
+  if (discover.length) {
+    head('Nieuw om te proberen');
+    for (const x of discover) box.append(recipeCard(x, diet, true));
   }
 }
 
@@ -1362,7 +1569,8 @@ function init() {
   $('#manualForm').addEventListener('submit', e => {
     e.preventDefault();
     const code = $('#manualCode').value.trim();
-    if (code) onCode(code);
+    if (state.batch) $('#manualCode').value = '';
+    if (code) onCode(code, true);
   });
   $('#noBarcode').addEventListener('click', async () => {
     await closeScan();
@@ -1371,7 +1579,17 @@ function init() {
   });
 
   document.querySelectorAll('[data-close]').forEach(b =>
-    b.addEventListener('click', () => b.closest('dialog').close()));
+    b.addEventListener('click', () => {
+      const dlg = b.closest('dialog');
+      if (dlg.id === 'scanDlg' && !confirmDropBatch()) return;
+      dlg.close();
+    }));
+  $('#scanDlg').addEventListener('cancel', e => { if (!confirmDropBatch()) e.preventDefault(); });
+  $('#batchToggle').addEventListener('click', () => {
+    if (state.batch && state.batch.length && !confirmDropBatch()) return;
+    toggleBatch();
+  });
+  $('#batchSave').addEventListener('click', saveBatch);
   $('#scanDlg').addEventListener('close', stopCamera);
   $('#photoInput').addEventListener('change', e => {
     const file = e.target.files[0];
@@ -1419,6 +1637,10 @@ function init() {
   });
   $('#itemPhotoDel').addEventListener('click', () => { state.pendingPhoto = null; showFormPhoto(null); });
   $('#cookBtn').addEventListener('click', () => { renderCook(); $('#cookDlg').showModal(); });
+  document.querySelectorAll('#dietTabs button').forEach(b => b.addEventListener('click', () => {
+    lsSet('dvv.diet', b.dataset.diet);
+    renderCook();
+  }));
   $('#shopBtn').addEventListener('click', () => { renderShopping(); $('#shopDlg').showModal(); });
   $('#shopForm').addEventListener('submit', e => {
     e.preventDefault();

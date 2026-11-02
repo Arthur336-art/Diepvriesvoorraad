@@ -1,5 +1,5 @@
-const CACHE = 'dvv-v8';
-const V = '8';
+const CACHE = 'dvv-v9';
+const V = '9';
 const DATA_CACHE = 'dvv-data';
 const FILES = [
   './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, `recipes.js?v=${V}`, 'manifest.json', 'icon.svg',

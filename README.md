@@ -8,9 +8,10 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 - Kies diepvries of frigo en de soort. Elke soort heeft een richtlijn voor houdbaarheid (zie Menu).
 - Staat er een THT-datum op de verpakking, vul die in. In de frigo telt die datum. In de diepvries telt de langste van THT en richtlijn.
 - Tik op Eruit en scan opnieuw. Bij meerdere stuks gaat er één af. Heb je hetzelfde product meerdere keren, dan kies je welke.
+- Veel boodschappen? Tik in het scanscherm op "Snel scannen" en scan alles na elkaar. Op het einde sla je alles in één keer op.
 - Geen barcode? Voeg toe zonder barcode of kies uit de lijst.
 - Tik op een product om het aan te passen. Je kunt er ook een foto bij nemen.
-- 🍳 bovenaan toont gerechten met wat eerst op moet.
+- 🍳 bovenaan toont gerechten met wat eerst op moet, en nieuwe gerechten om te proberen. Zit er geen vlees in je voorraad, dan toont de app alleen vegetarische gerechten.
 - 🛒 bovenaan is je boodschappenlijst. Haal je het laatste stuk van iets eruit, dan vraagt de app of het op de lijst moet.
 
 ## Meldingen

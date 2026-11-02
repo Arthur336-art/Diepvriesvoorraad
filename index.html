@@ -9,10 +9,10 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=8">
-  <script src="vendor/barcode-detector.js?v=8" defer></script>
-  <script src="recipes.js?v=8" defer></script>
-  <script src="app.js?v=8" defer></script>
+  <link rel="stylesheet" href="style.css?v=9">
+  <script src="vendor/barcode-detector.js?v=9" defer></script>
+  <script src="recipes.js?v=9" defer></script>
+  <script src="app.js?v=9" defer></script>
 </head>
 <body>
   <header>
@@ -54,6 +54,11 @@
       <div class="aim"></div>
     </div>
     <p id="scanMsg" class="muted"></p>
+    <button id="batchToggle" type="button" class="secondary full">⚡ Snel scannen: meerdere na elkaar</button>
+    <div id="batchPanel" class="hidden">
+      <div id="batchList"></div>
+      <button id="batchSave" type="button" class="primary full">Alles opslaan</button>
+    </div>
     <form id="manualForm" class="row">
       <input id="manualCode" inputmode="numeric" placeholder="Barcode typen">
       <button type="submit">OK</button>
@@ -126,7 +131,13 @@
       <h2>Wat kan ik koken?</h2>
       <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
     </div>
-    <p class="muted">Gerechten met wat eerst op moet bovenaan.</p>
+    <div id="dietTabs" class="diet-tabs">
+      <button type="button" data-diet="auto">Automatisch</button>
+      <button type="button" data-diet="veg">Vegetarisch</button>
+      <button type="button" data-diet="fish">Vis en vega</button>
+      <button type="button" data-diet="meat">Alles</button>
+    </div>
+    <p id="dietInfo" class="muted"></p>
     <div id="cookList"></div>
   </dialog>
 
@@ -185,7 +196,7 @@
       <input id="restoreCode" placeholder="Backupcode van je oude gsm" autocomplete="off" autocapitalize="characters">
       <button type="submit" class="secondary">Terughalen</button>
     </form>
-    <p class="muted">Versie 8</p>
+    <p class="muted">Versie 9</p>
     <h3>Houdbaarheid per soort</h3>
     <div id="shelfTable"></div>
   </dialog>
