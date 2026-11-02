@@ -19,30 +19,58 @@ const CATEGORIES = [
   { id: 'beleg',      label: 'Vleeswaren / beleg',      diepvries: 60,  frigo: 4 },
   { id: 'ijs',        label: 'IJs',                     diepvries: 60,  frigo: 1 },
   { id: 'kantenklaar',label: 'Kant-en-klaar product',   diepvries: 180, frigo: 5 },
+  { id: 'aardappel',  label: 'Frieten / kroketten',     diepvries: 240, frigo: 3 },
+  { id: 'saus',       label: 'Dips / sauzen / smeersels', diepvries: 90, frigo: 14 },
   { id: 'eieren',     label: 'Eieren',                  diepvries: 270, frigo: 28 },
   { id: 'ander',      label: 'Ander',                   diepvries: 180, frigo: 5 },
 ];
 const CAT = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
 
-// Trefwoorden om een soort te raden uit naam of Open Food Facts categorieën.
-const GUESS = [
-  ['ijs', ['ice-cream', 'ijs', 'glace', 'roomijs']],
-  ['gehakt', ['gehakt', 'minced', 'hache', 'sausage', 'worst', 'saucisse', 'burger']],
-  ['gevogelte', ['chicken', 'kip', 'poulet', 'poultry', 'kalkoen', 'turkey', 'eend']],
-  ['vis_vet', ['salmon', 'zalm', 'saumon', 'makreel', 'mackerel', 'haring', 'tonijn']],
-  ['schaaldier', ['shrimp', 'garnaal', 'garnalen', 'scampi', 'mosselen', 'crevette']],
-  ['vis_mager', ['fish', 'vis', 'poisson', 'kabeljauw', 'cod', 'pangasius', 'koolvis', 'fishstick']],
-  ['varken', ['pork', 'varken', 'porc', 'spek', 'bacon', 'ham']],
-  ['rundvlees', ['beef', 'rund', 'boeuf', 'steak', 'lam', 'kalf', 'meat', 'vlees']],
-  ['kaas', ['cheese', 'kaas', 'fromage']],
-  ['zuivel', ['milk', 'melk', 'yogurt', 'yoghurt', 'dairy', 'zuivel', 'lait']],
-  ['beleg', ['charcuterie', 'salami', 'vleeswaren', 'cold-cut']],
-  ['brood', ['bread', 'brood', 'pain', 'pastry', 'gebak', 'croissant', 'pizza']],
-  ['soep', ['soup', 'soep', 'soupe', 'sauce', 'saus']],
-  ['groenten', ['vegetable', 'groente', 'legume', 'spinazie', 'erwt', 'bonen', 'fries', 'frieten', 'friet', 'potato']],
-  ['fruit', ['fruit', 'berries', 'bessen', 'aardbei', 'framboos']],
-  ['eieren', ['egg', 'eieren', 'oeuf']],
-  ['kantenklaar', ['meal', 'maaltijd', 'frozen', 'diepvries', 'surgel', 'lasagne']],
+// Regels om de soort te raden. Volgorde telt: specifiek eerst.
+// TAG_RULES kijken naar de categorieën van Open Food Facts (Engels, bv. en:frozen-chicken-breasts).
+// NAME_RULES kijken naar de productnaam (NL, FR, EN). Een woord met ^ moet aan het begin van een woord staan.
+const TAG_RULES = [
+  ['ijs',        ['ice-cream', 'frozen-dessert', 'sorbet', 'glaces']],
+  ['soep',       ['soup']],
+  ['saus',       ['sauces', 'dips', 'spreads', 'mayonnaise', 'ketchup', 'hummus', 'pesto']],
+  ['aardappel',  ['fries', 'potato', 'croquette', 'rosti', 'frites']],
+  ['kantenklaar',['pizza', 'meals', 'lasagn', 'quiche', 'nugget', 'snack', 'prepared', 'ready', 'spring-roll', 'burrito']],
+  ['gehakt',     ['minced', 'ground-', 'sausage', 'burger', 'meatball', 'hamburger']],
+  ['beleg',      ['cold-cut', 'hams', 'salami', 'charcuterie', 'sliced-meat', 'pate', 'bacon-slice', 'cooked-ham']],
+  ['gevogelte',  ['chicken', 'poultr', 'turkey', 'duck']],
+  ['vis_vet',    ['salmon', 'mackerel', 'herring', 'tuna', 'trout', 'sardine']],
+  ['schaaldier', ['shrimp', 'prawn', 'mussel', 'crustacean', 'scampi', 'seafood', 'squid', 'calamar']],
+  ['vis_mager',  ['fish', 'cod', 'pollock', 'hake', 'pangasius', 'plaice', 'tilapia']],
+  ['varken',     ['pork', 'bacon', 'spare-rib']],
+  ['rundvlees',  ['beef', 'veal', 'lamb', 'meat']],
+  ['kaas',       ['cheese']],
+  ['eieren',     ['eggs']],
+  ['zuivel',     ['milk', 'yogurt', 'yoghurt', 'dairy', 'cream', 'butter', 'dessert', 'pudding', 'quark']],
+  ['brood',      ['bread', 'viennoiserie', 'pastr', 'croissant', 'cake', 'waffle', 'pancake', 'baguette']],
+  ['groenten',   ['vegetable', 'spinach', 'peas', 'beans', 'broccoli', 'legume', 'herbs', 'mushroom', 'onion', 'carrot']],
+  ['fruit',      ['fruit', 'berr', 'strawberr', 'raspberr', 'mango', 'cherr']],
+];
+const NAME_RULES = [
+  ['ijs',        ['roomijs', '^ijsje', '^ijs ', '^ijs$', 'sorbet', '^glace', '^ice cream', 'magnum', 'cornetto']],
+  ['soep',       ['soep', 'soupe', '^soup', 'bouillon']],
+  ['saus',       ['saus', '^sauce', '^dip', 'mayonaise', 'mayonnaise', 'ketchup', 'hummus', 'pesto', 'tapenade', 'smeerpasta']],
+  ['aardappel',  ['friet', 'frites', '^fries', 'kroket', 'croquette', 'aardappel', 'pommes', 'patat', 'rösti', 'rosti', 'gratin']],
+  ['kantenklaar',['pizza', 'lasagne', 'maaltijd', 'quiche', 'nugget', 'loempia', 'bitterbal', 'frikandel', 'burrito', 'wrap', 'stoofvlees', 'balletjes in', 'vol-au-vent', 'stoemp', 'spaghetti', 'bolognese', 'ovenschotel', 'macaroni']],
+  ['gehakt',     ['gehakt', 'haché', 'hache', 'worst', 'saucisse', 'burger', 'chipolata', 'merguez', '^boulette']],
+  ['beleg',      ['salami', 'ham ', '^ham$', 'jambon', 'filet de saxe', 'boterhamworst', 'vleeswaren', 'paté', 'pate', 'américain', 'americain', 'préparé', 'kipfilet beleg']],
+  ['gevogelte',  ['^kip', 'kalkoen', '^eend', 'poulet', 'chicken', 'dinde', 'kalkoen']],
+  ['vis_vet',    ['zalm', 'saumon', 'salmon', 'makreel', 'maquereau', 'haring', 'hareng', 'tonijn', 'thon', 'forel', 'truite', 'paling', 'sardine']],
+  ['schaaldier', ['garnaal', 'garnalen', 'scampi', 'mosselen', 'moules', 'crevette', 'inktvis', 'calamar', 'zeevruchten', 'fruits de mer']],
+  ['vis_mager',  ['kabeljauw', 'cabillaud', 'koolvis', 'colin', 'heek', 'pangasius', 'tilapia', 'schol', 'vissticks', 'fish stick', 'vis ', '^vis$', 'visfilet', 'poisson', '^fish']],
+  ['varken',     ['varken', 'porc', '^pork', '^spek$', 'spekblokjes', 'spekreepjes', 'lardon', 'spare', 'ribbetjes', 'kotelet', 'côte de porc']],
+  ['rundvlees',  ['rund', 'boeuf', 'bœuf', 'beef', 'steak', 'biefstuk', 'entrecote', 'kalf', '^veau', '^lam', 'agneau', '^vlees']],
+  ['groenten',   ['groent', 'légume', 'legume', 'spinazie', 'épinard', 'erwt', 'petits pois', 'bonen', 'haricot', 'broccoli', 'bloemkool', 'wortel', 'carotte', '^ui$', '^uien', 'oignon', 'paprika', 'champignon', 'prei', 'poireau', 'courgette', '^mais$', 'maïs', 'kruiden', 'peterselie', 'spruit', 'wok']],
+  ['zuivel',     ['platte kaas', 'kwark', 'skyr', 'cottage']],
+  ['kaas',       ['kaas', 'fromage', 'cheese', 'gouda', 'brie', 'camembert', 'mozzarella', 'parmezaan', 'emmental', 'feta']],
+  ['eieren',     ['eieren', '^ei$', 'oeufs', 'œufs', '^eggs']],
+  ['zuivel',     ['melk', '^lait', 'yoghurt', 'yogurt', 'yaourt', 'room', 'crème', 'creme', '^boter$', 'roomboter', 'beurre', 'pudding', 'platte kaas', 'skyr', 'kwark', 'danone', 'alpro']],
+  ['brood',      ['brood', '^pain', 'baguette', 'croissant', 'pistolet', 'koffiekoek', 'taart', 'cake', 'wafel', 'gaufre', 'pannenkoek', 'crêpe', 'sandwich', 'boterkoek']],
+  ['fruit',      ['fruit', 'aardbei', 'fraise', 'framboos', 'framboise', 'bessen', 'baies', 'mango', '^kersen', 'cerise', 'banaan', 'appel', 'pomme ', 'peer', 'ananas', 'smoothie']],
 ];
 
 const DAY = 86400000;
@@ -142,6 +170,7 @@ function render() {
     bar.className = 'alert hidden';
   }
 
+  updateBadge();
   const q = state.query.toLowerCase();
   const shown = all
     .filter(i => state.filter === 'alles' || i.location === state.filter)
@@ -323,33 +352,76 @@ async function handleIn(code) {
   openItem({ barcode: code, prod });
 }
 
-async function lookup(code) {
-  try {
+async function fetchProduct(code) {
+  const fields = [
+    'product_name', 'product_name_nl', 'product_name_fr', 'product_name_en', 'generic_name_nl', 'generic_name',
+    'brands', 'categories_tags', 'food_groups_tags', 'quantity',
+  ].join(',');
+  const url = `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json?fields=${fields}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
     const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch(
-      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json` +
-      '?fields=product_name,product_name_nl,product_name_fr,brands,categories_tags',
-      { signal: ctrl.signal }
-    );
-    clearTimeout(t);
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.status !== 1 || !data.product) return null;
-    const p = data.product;
-    const base = p.product_name_nl || p.product_name || p.product_name_fr || '';
-    const brand = (p.brands || '').split(',')[0].trim();
-    const name = [brand, base].filter(Boolean).join(' ').trim();
-    if (!name) return null;
-    return { name, category: guessCategory(name + ' ' + (p.categories_tags || []).join(' ')) };
-  } catch {
-    return null;
+    const t = setTimeout(() => ctrl.abort(), 7000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (res.status === 404) return null;
+      if (res.ok) {
+        const data = await res.json();
+        return data.status === 1 ? data.product : null;
+      }
+    } catch {
+      // netwerkfout: één keer opnieuw proberen
+    } finally {
+      clearTimeout(t);
+    }
   }
+  throw new Error('offline');
 }
 
-function guessCategory(text) {
-  const t = text.toLowerCase();
-  for (const [id, words] of GUESS) if (words.some(w => t.includes(w))) return id;
+// Zoekt het product op. Geeft { name, category, location } of null.
+async function lookup(code) {
+  let p;
+  try { p = await fetchProduct(code); }
+  catch { toast('Geen verbinding, typ zelf een naam'); return null; }
+  if (!p) { toast('Product niet gevonden, typ zelf een naam'); return null; }
+  const base = (p.product_name_nl || p.product_name || p.product_name_fr || p.product_name_en ||
+    p.generic_name_nl || p.generic_name || '').trim();
+  const brand = (p.brands || '').split(',')[0].trim();
+  // Merk niet dubbel tonen als het al in de naam staat.
+  const name = (brand && !base.toLowerCase().includes(brand.toLowerCase()) ? `${brand} ${base}` : base).trim();
+  const tags = [...(p.categories_tags || []), ...(p.food_groups_tags || [])];
+  const nameForGuess = [base, p.generic_name_nl, p.generic_name].filter(Boolean).join(' ');
+  const category = guessCategory(nameForGuess, tags);
+  if (!name && !category) { toast('Product niet gevonden, typ zelf een naam'); return null; }
+  return { name, category, location: guessLocation(tags, category), size: (p.quantity || '').trim() };
+}
+
+function matchRules(rules, text, wordStart) {
+  const t = ` ${text.toLowerCase()} `;
+  for (const [id, words] of rules) {
+    for (const w of words) {
+      if (w.startsWith('^')) {
+        const word = w.slice(1).replace(/\$$/, '');
+        const re = new RegExp(`[^a-zà-ÿœ]${word.replace(/[.*+?()[\]\\]/g, '\\$&')}${w.endsWith('$') ? '[^a-zà-ÿœ]' : ''}`);
+        if (re.test(t)) return id;
+      } else if (t.includes(w)) return id;
+    }
+  }
+  return null;
+}
+
+// Eerst de naam die je zelf eerder gaf, dan de naam, dan de categorieën van Open Food Facts.
+function guessCategory(name, tags = []) {
+  const known = Object.values(state.products).find(p => p.name.toLowerCase() === name.trim().toLowerCase());
+  if (known) return known.category;
+  return matchRules(NAME_RULES, name) || matchRules(TAG_RULES, tags.join(' ')) || null;
+}
+
+// Diepvries of frigo raden uit de categorieën van Open Food Facts.
+function guessLocation(tags, category) {
+  const t = tags.join(' ');
+  if (/frozen|surgel|diepvries|tiefkühl|ice-cream/.test(t) || category === 'ijs') return 'diepvries';
+  if (/chilled|fresh|dairies|dairy|cheese|cold-cut|yogurt|refrigerated/.test(t)) return 'frigo';
+  if (['zuivel', 'kaas', 'beleg', 'eieren', 'saus'].includes(category)) return 'frigo';
   return null;
 }
 
@@ -380,7 +452,12 @@ function openItem({ id = null, barcode = '', prod = null }) {
   f.elements.added.value = src.added;
   f.elements.expiry.value = src.expiry || '';
   $('#itemTitle').textContent = item ? 'Bewerken' : 'Erin';
-  $('#itemBarcode').textContent = src.barcode ? `Barcode ${src.barcode}` : '';
+  $('#itemBarcode').textContent = [
+    src.barcode && `Barcode ${src.barcode}`,
+    prod?.size,
+    prod?.name && 'herkend',
+  ].filter(Boolean).join(' · ');
+  f.elements.calendar.checked = !item && calendarPref();
   $('#itemDelete').classList.toggle('hidden', !item);
   $('#itemDelete').textContent = item && item.qty > 1 ? 'Eén eruit' : 'Eruit';
   updateHint();
@@ -420,9 +497,86 @@ function saveItem(e) {
   if (data.barcode) {
     state.products[data.barcode] = { name: data.name, category: data.category, location: data.location };
   }
+  const wantsCalendar = f.elements.calendar.checked;
+  if (!state.editingId) setCalendarPref(wantsCalendar);
   save();
   $('#itemDlg').close();
   render();
+  if (wantsCalendar) {
+    const saved = state.editingId ? state.items.find(i => i.id === state.editingId) : state.items[state.items.length - 1];
+    downloadCalendar([saved], `herinnering-${slug(saved.name)}.ics`);
+  }
+}
+
+// ---------- Agenda ----------
+
+function calendarPref() {
+  try { return localStorage.getItem('dvv.calendar') === '1'; } catch { return false; }
+}
+function setCalendarPref(on) {
+  try { localStorage.setItem('dvv.calendar', on ? '1' : '0'); } catch {}
+}
+function slug(s) {
+  return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'product';
+}
+function icsText(s) {
+  return String(s).replace(/\\/g, '\\\\').replace(/[;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
+}
+// Regels langer dan 75 tekens afbreken, zoals de agenda-standaard vraagt.
+function icsFold(line) {
+  const out = [];
+  while (line.length > 74) { out.push(line.slice(0, 74)); line = ' ' + line.slice(74); }
+  out.push(line);
+  return out.join('\r\n');
+}
+function icsDate(d, hh = 9, mm = 0) {
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${z(d.getMonth() + 1)}${z(d.getDate())}T${z(hh)}${z(mm)}00`;
+}
+
+// Eén afspraak per product, om 9 u op de dag dat het op moet.
+// Alarm op die dag, en op voorhand: diepvries 7 dagen, frigo 1 dag.
+function buildCalendar(items) {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Diepvriesvoorraad//NL', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+  for (const i of items) {
+    const limit = limitDate(i);
+    const day = limit < today() ? today() : limit;
+    const where = i.location === 'diepvries' ? 'diepvries' : 'frigo';
+    const ahead = i.location === 'diepvries' ? 7 : 1;
+    const daysLeft = Math.round((day - today()) / DAY);
+    lines.push(
+      'BEGIN:VEVENT',
+      `UID:${i.id}@diepvriesvoorraad`,
+      `DTSTAMP:${stamp}`,
+      `DTSTART:${icsDate(day, 9, 0)}`,
+      `DTEND:${icsDate(day, 9, 15)}`,
+      icsFold(`SUMMARY:${icsText(`${i.name} moet op (${where})`)}`),
+      icsFold(`DESCRIPTION:${icsText(`Erin sinds ${fmtDate(i.added)}. Vandaag is de houdbaarheid in de ${where} om.`)}`),
+      'BEGIN:VALARM', 'ACTION:DISPLAY', icsFold(`DESCRIPTION:${icsText(`${i.name} moet vandaag op`)}`), 'TRIGGER:PT0M', 'END:VALARM',
+    );
+    if (daysLeft > ahead) {
+      lines.push('BEGIN:VALARM', 'ACTION:DISPLAY',
+        icsFold(`DESCRIPTION:${icsText(`${i.name} moet binnenkort op`)}`), `TRIGGER:-P${ahead}D`, 'END:VALARM');
+    }
+    lines.push('END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return lines.join('\r\n') + '\r\n';
+}
+
+function downloadCalendar(items, filename) {
+  if (!items.length) { toast('Er zit nog niets in de voorraad'); return; }
+  const blob = new Blob([buildCalendar(items)], { type: 'text/calendar;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast('Tik op "Voeg toe" om de herinnering in je agenda te zetten');
 }
 
 // ---------- Eruit ----------
@@ -514,25 +668,43 @@ async function importData(file) {
 }
 
 async function enableNotify() {
-  if (!('Notification' in window)) { toast('Meldingen werken niet in deze browser'); return; }
+  if (!('Notification' in window)) {
+    toast('Meldingen werken alleen als de app op je beginscherm staat');
+    return;
+  }
   const p = await Notification.requestPermission();
-  toast(p === 'granted' ? 'Je krijgt een melding bij het openen als iets te lang ligt' : 'Meldingen staan uit');
-  if (p === 'granted') notifyOnce(true);
+  toast(p === 'granted' ? 'Je krijgt een melding als je de app opent en er iets op moet' : 'Meldingen staan uit');
+  if (p === 'granted') { updateBadge(); notifyOnce(true); }
 }
 
-function notifyOnce(force = false) {
+// Rood getal op het app-icoon: aantal producten dat te lang ligt of binnenkort op moet.
+function updateBadge() {
+  if (!('setAppBadge' in navigator)) return;
+  const n = state.items.filter(i => status(i).level !== 'ok').length;
+  (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
+}
+
+async function notifyOnce(force = false) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   const key = 'dvv.notified';
   const d = toISO(today());
-  if (!force && localStorage.getItem(key) === d) return;
-  const bad = state.items.filter(i => status(i).level === 'bad');
-  if (!bad.length) return;
+  try { if (!force && localStorage.getItem(key) === d) return; } catch {}
+  const all = state.items.map(i => ({ i, s: status(i) }));
+  const bad = all.filter(x => x.s.level === 'bad').map(x => x.i.name);
+  const warn = all.filter(x => x.s.level === 'warn').map(x => x.i.name);
+  if (!bad.length && !warn.length) return;
   try { localStorage.setItem(key, d); } catch {}
-  const names = bad.slice(0, 3).map(i => i.name).join(', ');
-  new Notification('Te lang in de voorraad', {
-    body: `${bad.length} te lang: ${names}${bad.length > 3 ? '...' : ''}`,
-    icon: 'icon.svg',
-  });
+  const list = names => names.slice(0, 3).join(', ') + (names.length > 3 ? ` en ${names.length - 3} meer` : '');
+  const body = [bad.length && `Te lang: ${list(bad)}.`, warn.length && `Binnenkort op: ${list(warn)}.`]
+    .filter(Boolean).join(' ');
+  const title = bad.length ? 'Er ligt iets te lang in' : 'Er moet iets op';
+  const opts = { body, icon: 'icon.svg', badge: 'icon.svg', tag: 'voorraad' };
+  // iPhone kent alleen meldingen via de service worker.
+  try {
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg) { await reg.showNotification(title, opts); return; }
+  } catch {}
+  try { new Notification(title, opts); } catch {}
 }
 
 // ---------- Start ----------
@@ -591,6 +763,7 @@ function init() {
   $('#exportBtn').addEventListener('click', exportData);
   $('#importFile').addEventListener('change', e => e.target.files[0] && importData(e.target.files[0]));
   $('#notifyBtn').addEventListener('click', enableNotify);
+  $('#calendarAllBtn').addEventListener('click', () => downloadCalendar(state.items, 'voorraad-herinneringen.ics'));
 
   render();
   notifyOnce();

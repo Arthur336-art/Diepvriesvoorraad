@@ -1,5 +1,5 @@
-const CACHE = 'dvv-v3';
-const V = '3';
+const CACHE = 'dvv-v4';
+const V = '4';
 const FILES = [
   './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, 'manifest.json', 'icon.svg',
   `vendor/barcode-detector.js?v=${V}`, 'vendor/zxing_reader.wasm',
@@ -30,5 +30,16 @@ self.addEventListener('fetch', e => {
         return res;
       })
       .catch(() => caches.match(e.request))
+  );
+});
+
+// Tik op een melding: app openen.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      const open = list.find(c => 'focus' in c);
+      return open ? open.focus() : self.clients.openWindow('./');
+    })
   );
 });

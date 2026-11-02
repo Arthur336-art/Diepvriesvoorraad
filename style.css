@@ -159,3 +159,6 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--border); text-align: l
   transform: translateX(-50%); background: var(--text); color: var(--bg);
   padding: 10px 16px; border-radius: 10px; z-index: 10; max-width: calc(100vw - 32px);
 }
+
+form label.check { display: flex; align-items: center; gap: 10px; color: var(--text); margin-top: 12px; }
+form label.check input { width: 22px; height: 22px; margin: 0; }

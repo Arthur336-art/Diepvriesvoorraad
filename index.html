@@ -9,9 +9,9 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=3">
-  <script src="vendor/barcode-detector.js?v=3" defer></script>
-  <script src="app.js?v=3" defer></script>
+  <link rel="stylesheet" href="style.css?v=4">
+  <script src="vendor/barcode-detector.js?v=4" defer></script>
+  <script src="app.js?v=4" defer></script>
 </head>
 <body>
   <header>
@@ -91,6 +91,7 @@
         <input name="expiry" type="date">
       </label>
       <p id="itemHint" class="muted"></p>
+      <label class="check"><input type="checkbox" name="calendar"> 📅 Herinnering in mijn agenda zetten</label>
       <div class="row">
         <button type="button" id="itemDelete" class="danger hidden">Verwijderen</button>
         <button type="submit" class="primary">Opslaan</button>
@@ -117,8 +118,11 @@
     <label class="secondary full file-btn">Backup terugzetten
       <input id="importFile" type="file" accept="application/json" hidden>
     </label>
-    <button id="notifyBtn" class="secondary full">Meldingen aanzetten</button>
-    <p class="muted">Versie 3</p>
+    <h3>Meldingen</h3>
+    <p class="muted">Op een iPhone kan de app je niet zelf verwittigen als hij dicht is. Gebruik daarom de agenda: je agenda waarschuwt je op de dag dat iets op moet. In de diepvries krijg je ook een week op voorhand een seintje.</p>
+    <button id="calendarAllBtn" class="secondary full">📅 Alles in mijn agenda zetten</button>
+    <button id="notifyBtn" class="secondary full">🔔 Melding bij openen en getal op het icoon</button>
+    <p class="muted">Versie 4</p>
     <h3>Houdbaarheid per soort</h3>
     <div id="shelfTable"></div>
   </dialog>

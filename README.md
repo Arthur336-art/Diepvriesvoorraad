@@ -11,6 +11,13 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 - Geen barcode? Voeg toe zonder barcode of kies uit de lijst.
 - Tik op een product om het aan te passen.
 
+## Meldingen
+
+- Vink bij het opslaan "Herinnering in mijn agenda zetten" aan. Je agenda waarschuwt je op de dag dat het product op moet. In de diepvries ook 7 dagen op voorhand, in de frigo 1 dag.
+- Menu, "Alles in mijn agenda zetten" zet herinneringen voor je hele voorraad in één keer.
+- Menu, "Melding bij openen" geeft een melding als je de app opent en er iets op moet, en een rood getal op het app-icoon.
+- Een webapp op iPhone kan zichzelf niet wakker maken op een datum. Daarom loopt de herinnering via de agenda.
+
 Kleuren:
 
 - Rood: ligt er te lang in.
