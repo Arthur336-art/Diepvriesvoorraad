@@ -33,3 +33,9 @@ Om 8 u of 9 u in de ochtend op:
 - 1 en 2 weken later als het er nog in ligt.
 
 Maximaal één melding per dag. De melding zegt welke producten op moeten.
+
+## Backup
+
+De app maakt automatisch een backup op deze server, een paar seconden na elke wijziging.
+Alles wordt op je gsm versleuteld met je backupcode. De server kan je backup niet lezen.
+Je backupcode staat in de app bij Menu ⋮, Backup. Bewaar hem goed.

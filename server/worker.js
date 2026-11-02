@@ -3,6 +3,9 @@
 // Wat hij bewaart: per toestel het push-adres en een lijst datums waarop een melding moet komen.
 // Geen productnamen: die blijven op je gsm. De app toont ze zelf als de melding binnenkomt.
 //
+// Backup: de app versleutelt je voorraad op je gsm met je backupcode en stuurt alleen
+// onleesbare data. De server kan je backup dus niet lezen.
+//
 // Nodig in Cloudflare:
 //   - KV-binding met de naam SUBS
 //   - Cron trigger, bv. "0 7 * * *" (elke ochtend 8 u of 9 u Belgische tijd)
@@ -11,6 +14,10 @@
 const ALLOWED_ORIGINS = ['https://arthur336-art.github.io', 'http://localhost:8000'];
 const SUBJECT = 'https://arthur336-art.github.io/Diepvriesvoorraad/';
 const MAX_DATES = 400;
+const MAX_BACKUP = 10 * 1024 * 1024; // 10 MB
+const MAX_PHOTO = 1024 * 1024;       // 1 MB per foto
+const BACKUP_ID = /^[0-9a-f]{64}$/;
+const PHOTO_ID = /^[a-z0-9]{1,40}$/;
 // Alleen naar echte push-diensten sturen (Apple, Google, Mozilla, Microsoft).
 const PUSH_HOSTS = [/\.push\.apple\.com$/, /^fcm\.googleapis\.com$/, /\.push\.services\.mozilla\.com$/, /\.notify\.windows\.com$/];
 const isPushEndpoint = url => {
@@ -25,7 +32,7 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const cors = {
       'Access-Control-Allow-Origin': ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0],
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Max-Age': '86400',
     };
@@ -38,7 +45,33 @@ export default {
     try {
       if (request.method === 'GET' && (pathname === '/' || pathname === '/key')) {
         const keys = await getKeys(env);
-        return json({ ok: true, publicKey: keys.publicKey });
+        return json({ ok: true, publicKey: keys.publicKey, backup: true });
+      }
+
+      // ---------- Backup ----------
+      // /backup/<id>                 de voorraad (versleuteld)
+      // /backup/<id>/photo/<foto-id> één foto (versleuteld)
+      const bk = pathname.match(/^\/backup\/([^/]+)(?:\/photo\/([^/]+))?$/);
+      if (bk) {
+        const [, id, photo] = bk;
+        if (!BACKUP_ID.test(id) || (photo !== undefined && !PHOTO_ID.test(photo))) return json({ error: 'bad id' }, 400);
+        const key = photo ? `bk:${id}:p:${photo}` : `bk:${id}`;
+        if (request.method === 'GET') {
+          const value = await env.SUBS.get(key);
+          if (value === null) return json({ error: 'not found' }, 404);
+          return new Response(value, { headers: { ...cors, 'Content-Type': 'text/plain' } });
+        }
+        if (request.method === 'PUT') {
+          const body = await request.text();
+          if (!body || body.length > (photo ? MAX_PHOTO : MAX_BACKUP)) return json({ error: 'too large' }, 413);
+          await env.SUBS.put(key, body, { metadata: { saved: new Date().toISOString() } });
+          return json({ ok: true });
+        }
+        if (request.method === 'DELETE' && photo) {
+          await env.SUBS.delete(key);
+          return json({ ok: true });
+        }
+        return json({ error: 'not allowed' }, 405);
       }
       if (request.method !== 'POST') return json({ error: 'not found' }, 404);
       const body = await request.json();

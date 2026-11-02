@@ -9,10 +9,10 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=7">
-  <script src="vendor/barcode-detector.js?v=7" defer></script>
-  <script src="recipes.js?v=7" defer></script>
-  <script src="app.js?v=7" defer></script>
+  <link rel="stylesheet" href="style.css?v=8">
+  <script src="vendor/barcode-detector.js?v=8" defer></script>
+  <script src="recipes.js?v=8" defer></script>
+  <script src="app.js?v=8" defer></script>
 </head>
 <body>
   <header>
@@ -172,11 +172,24 @@
       <button id="pushTest" class="secondary hidden">Test-melding</button>
       <button id="pushOff" class="secondary hidden">Uitzetten</button>
     </div>
-    <p class="muted">Versie 7</p>
+    <h3>Backup</h3>
+    <p id="backupStatus" class="muted"></p>
+    <p class="muted">Jouw backupcode:</p>
+    <div class="row code-row">
+      <code id="backupCode"></code>
+      <button id="backupCopy" type="button" class="secondary">Kopieer</button>
+    </div>
+    <p class="muted">Bewaar deze code goed, bijvoorbeeld in Notities. Met de code haal je alles terug op een nieuwe gsm. Zonder code kan niemand je backup lezen, ook jij niet.</p>
+    <button id="backupNow" type="button" class="secondary full">Nu een backup maken</button>
+    <form id="restoreForm" class="row">
+      <input id="restoreCode" placeholder="Backupcode van je oude gsm" autocomplete="off" autocapitalize="characters">
+      <button type="submit" class="secondary">Terughalen</button>
+    </form>
+    <p class="muted">Versie 8</p>
     <h3>Houdbaarheid per soort</h3>
     <div id="shelfTable"></div>
   </dialog>
 
-  <div id="toast" class="toast hidden"><span id="toastMsg"></span><button id="toastAction" class="hidden"></button></div>
+  <div id="toast" class="toast hidden"><span id="toastMsg"></span><span id="toastActions"></span></div>
 </body>
 </html>

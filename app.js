@@ -103,6 +103,7 @@ function save() {
   } catch { toast('Opslaan mislukt'); }
   writeSwData();
   schedulePushSync();
+  scheduleBackup();
 }
 
 function today() {
@@ -187,7 +188,9 @@ function render() {
   if (!shown.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = state.items.length ? 'Niets gevonden.' : 'Nog niets in voorraad. Tik op Erin om te scannen.';
+    p.textContent = state.items.length
+      ? 'Niets gevonden.'
+      : 'Nog niets in voorraad. Tik op Erin om te scannen. Nieuwe gsm? Haal je backup terug via het menu ⋮.';
     list.append(p);
     return;
   }
@@ -214,8 +217,19 @@ function render() {
       `${CAT[i.category].label} · erin ${fmtDate(i.added)} (${i.s.days ? humanDays(i.s.days) + " geleden" : "vandaag"})`;
     el.querySelector('.badge').textContent = badgeText(i.s);
     el.addEventListener('click', () => openItem({ id: i.id }));
-    list.append(el);
+    const row = document.createElement('div');
+    row.className = 'swipe';
+    const bg = document.createElement('div');
+    bg.className = 'swipe-bg';
+    bg.textContent = '－ Eruit';
+    row.append(bg, el);
+    attachSwipe(row, el, i.id);
+    list.append(row);
   }
+  const tip = document.createElement('p');
+  tip.className = 'swipe-tip';
+  tip.textContent = 'Tip: swipe een product naar links om het eruit te halen.';
+  list.append(tip);
 }
 function count(all, loc) {
   const n = all.filter(i => i.location === loc).length;
@@ -223,20 +237,22 @@ function count(all, loc) {
 }
 
 let toastTimer;
-// Korte melding onderaan. Met action = { label, run } verschijnt er een knop.
-function toast(msg, action = null) {
+// Korte melding onderaan. actions: lijst van { label, run } voor knoppen.
+function toast(msg, actions = []) {
+  if (!Array.isArray(actions)) actions = actions ? [actions] : [];
   const t = $('#toast');
-  const btn = $('#toastAction');
   $('#toastMsg').textContent = msg;
-  btn.classList.toggle('hidden', !action);
-  btn.onclick = null;
-  if (action) {
-    btn.textContent = action.label;
-    btn.onclick = () => { t.classList.add('hidden'); action.run(); };
+  const box = $('#toastActions');
+  box.replaceChildren();
+  for (const a of actions) {
+    const btn = document.createElement('button');
+    btn.textContent = a.label;
+    btn.addEventListener('click', () => { t.classList.add('hidden'); a.run(); });
+    box.append(btn);
   }
   t.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), action ? 7000 : 2800);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), actions.length ? 7000 : 2800);
 }
 
 // ---------- Scanner ----------
@@ -652,21 +668,85 @@ function takeOut(id) {
   const idx = state.items.findIndex(i => i.id === id);
   if (idx < 0) return;
   const item = state.items[idx];
+  const before = { ...item };
+  const undo = {
+    label: 'Ongedaan',
+    run: () => {
+      const cur = state.items.find(i => i.id === id);
+      if (cur) cur.qty = before.qty;
+      else state.items.splice(Math.min(idx, state.items.length), 0, before);
+      save();
+      render();
+      toast(`${before.name} staat er terug in`);
+    },
+  };
   if (item.qty > 1) {
     item.qty -= 1;
-    toast(`${item.name} eruit, nog ${item.qty} over`);
+    toast(`${item.name} eruit, nog ${item.qty} over`, [undo]);
   } else {
     state.items.splice(idx, 1);
-    if (item.photo) photoDel(item.id);
+    // Foto pas later wissen, zodat ongedaan maken nog kan.
+    if (item.photo) setTimeout(() => { if (!state.items.some(i => i.id === id)) photoDel(id); }, 10000);
     const same = i => (item.barcode && i.barcode === item.barcode) || i.name.toLowerCase() === item.name.toLowerCase();
     if (state.items.some(same) || onShoppingList(item.name)) {
-      toast(`${item.name} eruit`);
+      toast(`${item.name} eruit`, [undo]);
     } else {
-      toast(`${item.name} is op. Op je boodschappenlijst?`, { label: '🛒 Ja', run: () => addShopping(item.name) });
+      toast(`${item.name} is op.`, [undo, { label: '🛒 Op lijst', run: () => addShopping(item.name) }]);
     }
   }
   save();
   render();
+}
+
+// Swipe naar links om één stuk eruit te halen.
+function attachSwipe(row, card, id) {
+  let x0 = 0, y0 = 0, dx = 0, tracking = false, dragging = false, moved = false;
+  const reset = () => {
+    card.classList.remove('dragging');
+    card.style.transform = '';
+    setTimeout(() => { if (!dragging) row.classList.remove('active'); }, 200);
+  };
+  card.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    x0 = e.clientX; y0 = e.clientY; dx = 0;
+    tracking = true; dragging = false; moved = false;
+  });
+  card.addEventListener('pointermove', e => {
+    if (!tracking) return;
+    const mx = e.clientX - x0, my = e.clientY - y0;
+    if (!dragging) {
+      if (Math.abs(mx) < 8 && Math.abs(my) < 8) return;
+      // Verticaal of naar rechts: gewoon scrollen.
+      if (Math.abs(my) > Math.abs(mx) || mx > 0) { tracking = false; return; }
+      dragging = true;
+      moved = true;
+      card.classList.add('dragging');
+      row.classList.add('active');
+      try { card.setPointerCapture(e.pointerId); } catch {}
+    }
+    dx = Math.min(0, mx);
+    card.style.transform = `translateX(${dx}px)`;
+  });
+  const end = () => {
+    if (!tracking) return;
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    card.classList.remove('dragging');
+    if (dx < -Math.min(110, row.offsetWidth * 0.3)) {
+      card.style.transform = 'translateX(-110%)';
+      if (navigator.vibrate) navigator.vibrate(30);
+      setTimeout(() => takeOut(id), 180);
+    } else {
+      reset();
+    }
+  };
+  card.addEventListener('pointerup', end);
+  card.addEventListener('pointercancel', () => { tracking = false; dragging = false; reset(); });
+  // Na een swipe geen klik doorlaten.
+  card.addEventListener('click', e => {
+    if (moved) { e.stopImmediatePropagation(); moved = false; }
+  }, true);
 }
 
 // ---------- Boodschappenlijst ----------
@@ -1104,6 +1184,165 @@ async function renderPushStatus() {
   $('#pushOff').classList.toggle('hidden', !on);
 }
 
+// ---------- Automatische backup ----------
+// Alles wordt op je gsm versleuteld met je backupcode (AES-GCM). De server krijgt alleen
+// onleesbare data en een id dat uit de code is afgeleid. Zonder code is de backup niet te lezen.
+
+const BACKUP_CODE_KEY = 'dvv.backupCode';
+const BACKUP_TIME_KEY = 'dvv.backupTime';
+const BACKUP_PHOTOS_KEY = 'dvv.backupPhotos';
+const CODE_CHARS = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+
+function newBackupCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const chars = [...bytes].map(b => CODE_CHARS[b % 32]).join('');
+  return chars.match(/.{4}/g).join('-');
+}
+function normalizeCode(code) {
+  const c = code.toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[^0-9A-Z]/g, '');
+  return c.length === 20 ? c.match(/.{4}/g).join('-') : null;
+}
+function backupCode() {
+  let code = lsGet(BACKUP_CODE_KEY);
+  if (!code) { code = newBackupCode(); lsSet(BACKUP_CODE_KEY, code); }
+  return code;
+}
+function backupServerUrl() {
+  return pushServer() || DEFAULT_PUSH_SERVER;
+}
+
+async function sha256(text) {
+  return new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+}
+async function backupKeys(code) {
+  const norm = code.replace(/-/g, '');
+  const id = [...await sha256(`dvv-id:${norm}`)].map(b => b.toString(16).padStart(2, '0')).join('');
+  const key = await crypto.subtle.importKey('raw', await sha256(`dvv-key:${norm}`), 'AES-GCM', false, ['encrypt', 'decrypt']);
+  return { id, key };
+}
+function bytesToB64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function encryptBytes(key, bytes) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bytes));
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv);
+  out.set(ct, iv.length);
+  return bytesToB64(out);
+}
+async function decryptBytes(key, b64) {
+  const all = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: all.subarray(0, 12) }, key, all.subarray(12)));
+}
+
+let backupTimer = null;
+let backupBusy = false;
+function scheduleBackup() {
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(runBackup, 5000);
+}
+
+async function runBackup() {
+  if (backupBusy) { scheduleBackup(); return false; }
+  if (!navigator.onLine) return false;
+  backupBusy = true;
+  try {
+    const server = backupServerUrl();
+    const { id, key } = await backupKeys(backupCode());
+    const payload = { v: 1, saved: new Date().toISOString(), items: state.items, products: state.products, shopping: state.shopping };
+    const body = await encryptBytes(key, new TextEncoder().encode(JSON.stringify(payload)));
+    const res = await fetch(`${server}/backup/${id}`, { method: 'PUT', body });
+    if (!res.ok) throw new Error(res.status === 404 ? 'old-server' : 'failed');
+
+    // Foto's apart: alleen nieuwe uploaden, verwijderde wissen.
+    let uploaded = [];
+    try { uploaded = JSON.parse(lsGet(BACKUP_PHOTOS_KEY) || '[]'); } catch {}
+    const want = state.items.filter(i => i.photo).map(i => i.id);
+    for (const pid of want.filter(x => !uploaded.includes(x))) {
+      const blob = await photoGet(pid);
+      if (!blob) continue;
+      const enc = await encryptBytes(key, new Uint8Array(await blob.arrayBuffer()));
+      const r = await fetch(`${server}/backup/${id}/photo/${pid}`, { method: 'PUT', body: enc });
+      if (r.ok) uploaded.push(pid);
+    }
+    for (const pid of uploaded.filter(x => !want.includes(x))) {
+      const r = await fetch(`${server}/backup/${id}/photo/${pid}`, { method: 'DELETE' }).catch(() => null);
+      if (r && r.ok) uploaded = uploaded.filter(x => x !== pid);
+    }
+    lsSet(BACKUP_PHOTOS_KEY, JSON.stringify(uploaded));
+    lsSet(BACKUP_TIME_KEY, payload.saved);
+    lsSet('dvv.backupError', '');
+    return true;
+  } catch (e) {
+    lsSet('dvv.backupError', e.message === 'old-server' ? 'old-server' : 'failed');
+    return false;
+  } finally {
+    backupBusy = false;
+    if ($('#menuDlg').open) renderBackupStatus();
+  }
+}
+
+async function restoreBackup(input) {
+  const code = normalizeCode(input);
+  if (!code) { toast('Een backupcode heeft 20 tekens, bv. ABCD-EFGH-JKMN-PQRS-TVWX'); return; }
+  toast('Backup zoeken...');
+  try {
+    const server = backupServerUrl();
+    const { id, key } = await backupKeys(code);
+    const res = await fetch(`${server}/backup/${id}`);
+    if (res.status === 404) { toast('Geen backup gevonden met deze code'); return; }
+    if (!res.ok) throw new Error();
+    const data = JSON.parse(new TextDecoder().decode(await decryptBytes(key, await res.text())));
+    const when = new Date(data.saved).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    if (!confirm(`Backup van ${when} met ${data.items.length} producten terugzetten? Je huidige lijst wordt vervangen.`)) return;
+    state.items = data.items.filter(i => i && i.name && CAT[i.category] && WARN_DAYS[i.location] !== undefined);
+    state.products = data.products || {};
+    state.shopping = Array.isArray(data.shopping) ? data.shopping : [];
+    const got = [];
+    for (const i of state.items.filter(x => x.photo)) {
+      try {
+        const r = await fetch(`${server}/backup/${id}/photo/${i.id}`);
+        if (!r.ok) { delete i.photo; continue; }
+        await photoPut(i.id, new Blob([await decryptBytes(key, await r.text())], { type: 'image/jpeg' }));
+        got.push(i.id);
+      } catch { delete i.photo; }
+    }
+    // Vanaf nu deze code gebruiken, zodat de backup op dezelfde plek verder loopt.
+    lsSet(BACKUP_CODE_KEY, code);
+    lsSet(BACKUP_PHOTOS_KEY, JSON.stringify(got));
+    save();
+    render();
+    renderShopping();
+    renderBackupStatus();
+    $('#restoreCode').value = '';
+    $('#menuDlg').close();
+    toast(`Backup teruggezet: ${state.items.length} producten`);
+  } catch {
+    toast('Terughalen mislukt. Kijk of de code klopt.');
+  }
+}
+
+function renderBackupStatus() {
+  $('#backupCode').textContent = backupCode();
+  const t = lsGet(BACKUP_TIME_KEY);
+  const err = lsGet('dvv.backupError');
+  const el = $('#backupStatus');
+  if (err === 'old-server') {
+    el.textContent = 'Backup werkt nog niet: je server moet eerst bijgewerkt worden.';
+  } else if (t) {
+    const when = new Date(t).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+    el.textContent = `Automatisch aan. Laatste backup: ${when}.` + (err ? ' De laatste poging mislukte, de app probeert opnieuw.' : '');
+  } else {
+    el.textContent = err ? 'Backup mislukt. De app probeert opnieuw als je online bent.' : 'Automatisch aan. Nog geen backup gemaakt.';
+  }
+}
+
 // ---------- Start ----------
 
 function init() {
@@ -1156,9 +1395,18 @@ function init() {
     takeOut(id);
   });
 
-  $('#menuBtn').addEventListener('click', () => { renderPushStatus(); $('#menuDlg').showModal(); });
+  $('#menuBtn').addEventListener('click', () => { renderPushStatus(); renderBackupStatus(); $('#menuDlg').showModal(); });
   $('#pushForm').addEventListener('submit', e => { e.preventDefault(); enablePush($('#pushUrl').value); });
   $('#pushTest').addEventListener('click', testPush);
+  $('#backupCopy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(backupCode()); toast('Code gekopieerd. Plak hem in Notities.'); }
+    catch { toast('Kopiëren lukt niet. Schrijf de code over.'); }
+  });
+  $('#backupNow').addEventListener('click', async () => {
+    toast('Backup maken...');
+    toast(await runBackup() ? 'Backup gemaakt' : 'Backup mislukt');
+  });
+  $('#restoreForm').addEventListener('submit', e => { e.preventDefault(); restoreBackup($('#restoreCode').value); });
   $('#pushOff').addEventListener('click', disablePush);
   $('#itemPhotoInput').addEventListener('change', async e => {
     const file = e.target.files[0];
@@ -1194,6 +1442,7 @@ function init() {
   writeSwData();
   // Bij elke start de datums opnieuw doorsturen: zo blijft de server juist.
   schedulePushSync();
+  if (state.items.length || state.shopping.length) scheduleBackup();
   // Scanner al op de achtergrond klaarzetten, zodat hij meteen werkt.
   setTimeout(() => getDetector().catch(() => {}), 500);
   // Status opnieuw berekenen als de app terug open komt (bv. volgende dag).
