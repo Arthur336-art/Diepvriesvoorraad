@@ -1,7 +1,7 @@
-const CACHE = 'dvv-v4';
-const V = '4';
+const CACHE = 'dvv-v5';
+const V = '5';
 const FILES = [
-  './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, 'manifest.json', 'icon.svg',
+  './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, `recipes.js?v=${V}`, 'manifest.json', 'icon.svg',
   `vendor/barcode-detector.js?v=${V}`, 'vendor/zxing_reader.wasm',
 ];
 

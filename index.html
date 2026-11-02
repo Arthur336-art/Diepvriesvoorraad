@@ -9,14 +9,19 @@
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css?v=4">
-  <script src="vendor/barcode-detector.js?v=4" defer></script>
-  <script src="app.js?v=4" defer></script>
+  <link rel="stylesheet" href="style.css?v=5">
+  <script src="vendor/barcode-detector.js?v=5" defer></script>
+  <script src="recipes.js?v=5" defer></script>
+  <script src="app.js?v=5" defer></script>
 </head>
 <body>
   <header>
     <h1>Voorraad</h1>
-    <button id="menuBtn" class="icon-btn" aria-label="Menu">⋮</button>
+    <div class="head-btns">
+      <button id="cookBtn" class="icon-btn" aria-label="Wat kan ik koken?">🍳</button>
+      <button id="shopBtn" class="icon-btn" aria-label="Boodschappenlijst">🛒<span id="shopCount" class="dot hidden"></span></button>
+      <button id="menuBtn" class="icon-btn" aria-label="Menu">⋮</button>
+    </div>
   </header>
 
   <div id="alertBar" class="alert hidden"></div>
@@ -108,6 +113,33 @@
     <div id="pickList"></div>
   </dialog>
 
+  <!-- Wat kan ik koken -->
+  <dialog id="cookDlg">
+    <div class="dlg-head">
+      <h2>Wat kan ik koken?</h2>
+      <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
+    </div>
+    <p class="muted">Gerechten met wat eerst op moet bovenaan.</p>
+    <div id="cookList"></div>
+  </dialog>
+
+  <!-- Boodschappenlijst -->
+  <dialog id="shopDlg">
+    <div class="dlg-head">
+      <h2>Boodschappen</h2>
+      <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
+    </div>
+    <form id="shopForm" class="row">
+      <input id="shopInput" placeholder="Iets toevoegen" autocomplete="off">
+      <button type="submit" class="primary">＋</button>
+    </form>
+    <ul id="shopList"></ul>
+    <div class="row">
+      <button id="shopClear" class="secondary">Afgevinkte wissen</button>
+      <button id="shopShare" class="secondary">Delen</button>
+    </div>
+  </dialog>
+
   <!-- Menu -->
   <dialog id="menuDlg">
     <div class="dlg-head">
@@ -122,11 +154,11 @@
     <p class="muted">Op een iPhone kan de app je niet zelf verwittigen als hij dicht is. Gebruik daarom de agenda: je agenda waarschuwt je op de dag dat iets op moet. In de diepvries krijg je ook een week op voorhand een seintje.</p>
     <button id="calendarAllBtn" class="secondary full">📅 Alles in mijn agenda zetten</button>
     <button id="notifyBtn" class="secondary full">🔔 Melding bij openen en getal op het icoon</button>
-    <p class="muted">Versie 4</p>
+    <p class="muted">Versie 5</p>
     <h3>Houdbaarheid per soort</h3>
     <div id="shelfTable"></div>
   </dialog>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden"><span id="toastMsg"></span><button id="toastAction" class="hidden"></button></div>
 </body>
 </html>

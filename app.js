@@ -76,6 +76,7 @@ const NAME_RULES = [
 const DAY = 86400000;
 const WARN_DAYS = { diepvries: 30, frigo: 1 };
 const STORE_KEY = 'dvv.items.v1';
+const SHOP_KEY = 'dvv.shopping.v1';
 const PRODUCTS_KEY = 'dvv.products.v1';
 const LOC_ICON = { diepvries: '❄️', frigo: '🧊' };
 
@@ -83,6 +84,7 @@ const $ = s => document.querySelector(s);
 const state = {
   items: load(STORE_KEY, []),
   products: load(PRODUCTS_KEY, {}),
+  shopping: load(SHOP_KEY, []),
   filter: 'alles',
   query: '',
   mode: 'in',
@@ -97,6 +99,7 @@ function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(state.items));
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(state.products));
+    localStorage.setItem(SHOP_KEY, JSON.stringify(state.shopping));
   } catch { toast('Opslaan mislukt'); }
 }
 
@@ -211,12 +214,20 @@ function count(all, loc) {
 }
 
 let toastTimer;
-function toast(msg) {
+// Korte melding onderaan. Met action = { label, run } verschijnt er een knop.
+function toast(msg, action = null) {
   const t = $('#toast');
-  t.textContent = msg;
+  const btn = $('#toastAction');
+  $('#toastMsg').textContent = msg;
+  btn.classList.toggle('hidden', !action);
+  btn.onclick = null;
+  if (action) {
+    btn.textContent = action.label;
+    btn.onclick = () => { t.classList.add('hidden'); action.run(); };
+  }
   t.classList.remove('hidden');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), 2800);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), action ? 7000 : 2800);
 }
 
 // ---------- Scanner ----------
@@ -623,10 +634,135 @@ function takeOut(id) {
     toast(`${item.name} eruit, nog ${item.qty} over`);
   } else {
     state.items.splice(idx, 1);
-    toast(`${item.name} eruit`);
+    const same = i => (item.barcode && i.barcode === item.barcode) || i.name.toLowerCase() === item.name.toLowerCase();
+    if (state.items.some(same) || onShoppingList(item.name)) {
+      toast(`${item.name} eruit`);
+    } else {
+      toast(`${item.name} is op. Op je boodschappenlijst?`, { label: '🛒 Ja', run: () => addShopping(item.name) });
+    }
   }
   save();
   render();
+}
+
+// ---------- Boodschappenlijst ----------
+
+function onShoppingList(name) {
+  return state.shopping.some(s => !s.done && s.name.toLowerCase() === name.trim().toLowerCase());
+}
+
+function addShopping(name) {
+  name = name.trim();
+  if (!name) return;
+  if (onShoppingList(name)) { toast(`${name} staat al op je lijst`); return; }
+  state.shopping.push({ id: uid(), name, done: false });
+  save();
+  renderShopping();
+  toast(`${name} staat op je boodschappenlijst`);
+}
+
+function renderShopping() {
+  const open = state.shopping.filter(s => !s.done).length;
+  const dot = $('#shopCount');
+  dot.textContent = open;
+  dot.classList.toggle('hidden', !open);
+
+  const ul = $('#shopList');
+  ul.replaceChildren();
+  if (!state.shopping.length) {
+    const li = document.createElement('li');
+    li.className = 'muted';
+    li.textContent = 'Je lijst is leeg.';
+    ul.append(li);
+    return;
+  }
+  // Open items eerst, afgevinkte onderaan.
+  const sorted = [...state.shopping].sort((a, b) => a.done - b.done);
+  for (const s of sorted) {
+    const li = document.createElement('li');
+    li.className = s.done ? 'done' : '';
+    li.innerHTML = '<input type="checkbox"><span></span><button aria-label="Verwijderen">✕</button>';
+    const cb = li.querySelector('input');
+    cb.checked = s.done;
+    cb.addEventListener('change', () => { s.done = cb.checked; save(); renderShopping(); });
+    li.querySelector('span').textContent = s.name;
+    li.querySelector('span').addEventListener('click', () => { s.done = !s.done; save(); renderShopping(); });
+    li.querySelector('button').addEventListener('click', () => {
+      state.shopping = state.shopping.filter(x => x.id !== s.id);
+      save();
+      renderShopping();
+    });
+    ul.append(li);
+  }
+}
+
+async function shareShopping() {
+  const open = state.shopping.filter(s => !s.done).map(s => `- ${s.name}`);
+  if (!open.length) { toast('Er staat niets op je lijst'); return; }
+  const text = `Boodschappen:\n${open.join('\n')}`;
+  try {
+    if (navigator.share) { await navigator.share({ text }); return; }
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+  }
+  try { await navigator.clipboard.writeText(text); toast('Lijst gekopieerd'); }
+  catch { toast('Delen lukt niet in deze browser'); }
+}
+
+// ---------- Wat kan ik koken ----------
+
+// Score per gerecht: producten die te lang liggen tellen het zwaarst.
+function suggestRecipes() {
+  const weight = { bad: 5, warn: 3, ok: 1 };
+  const stock = state.items.map(i => ({ ...i, s: status(i) }));
+  const out = [];
+  for (const r of RECIPES) {
+    const mains = stock.filter(i => r.main.includes(i.category));
+    if (!mains.length) continue;
+    const extras = stock.filter(i => r.extra.includes(i.category) && !mains.includes(i));
+    // Per soort maar één product laten meetellen, het dringendste.
+    const pick = list => {
+      const best = {};
+      for (const i of list) if (!best[i.category] || i.s.left < best[i.category].s.left) best[i.category] = i;
+      return Object.values(best);
+    };
+    const used = [...pick(mains), ...pick(extras)];
+    const score = used.reduce((n, i) => n + weight[i.s.level] * (mains.includes(i) ? 2 : 1), 0);
+    const urgent = used.some(i => i.s.level !== 'ok');
+    out.push({ r, used: used.sort((a, b) => a.s.left - b.s.left), score: score + (urgent ? 100 : 0) });
+  }
+  return out.sort((a, b) => b.score - a.score).slice(0, 8);
+}
+
+function renderCook() {
+  const box = $('#cookList');
+  box.replaceChildren();
+  const list = suggestRecipes();
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = state.items.length
+      ? 'Geen gerecht gevonden met wat je hebt. Kies bij je producten een soort, dan vindt de app meer.'
+      : 'Je voorraad is leeg.';
+    box.append(p);
+    return;
+  }
+  for (const { r, used } of list) {
+    const card = document.createElement('div');
+    card.className = 'recipe';
+    card.innerHTML = '<h4></h4><div class="chips"></div><p></p><a target="_blank" rel="noopener">Recept zoeken →</a>';
+    card.querySelector('h4').textContent = r.name;
+    const chips = card.querySelector('.chips');
+    for (const i of used) {
+      const c = document.createElement('span');
+      c.className = `badge ${i.s.level}`;
+      c.textContent = `${LOC_ICON[i.location]} ${i.name}`;
+      chips.append(c);
+    }
+    card.querySelector('p').textContent = r.tip;
+    card.querySelector('a').href = `https://www.google.com/search?q=${encodeURIComponent('recept ' + r.name)}`;
+    box.append(card);
+  }
 }
 
 // ---------- Menu ----------
@@ -640,7 +776,7 @@ function renderShelfTable() {
 
 function exportData() {
   const blob = new Blob(
-    [JSON.stringify({ items: state.items, products: state.products, exported: new Date().toISOString() }, null, 2)],
+    [JSON.stringify({ items: state.items, products: state.products, shopping: state.shopping, exported: new Date().toISOString() }, null, 2)],
     { type: 'application/json' }
   );
   const a = document.createElement('a');
@@ -658,6 +794,8 @@ async function importData(file) {
     if (!confirm(`${valid.length} producten terugzetten? De huidige lijst wordt vervangen.`)) return;
     state.items = valid.map(i => ({ ...i, id: i.id || uid(), qty: i.qty || 1 }));
     state.products = data.products || {};
+    state.shopping = Array.isArray(data.shopping) ? data.shopping : state.shopping;
+    renderShopping();
     save();
     render();
     $('#menuDlg').close();
@@ -760,12 +898,26 @@ function init() {
   });
 
   $('#menuBtn').addEventListener('click', () => $('#menuDlg').showModal());
+  $('#cookBtn').addEventListener('click', () => { renderCook(); $('#cookDlg').showModal(); });
+  $('#shopBtn').addEventListener('click', () => { renderShopping(); $('#shopDlg').showModal(); });
+  $('#shopForm').addEventListener('submit', e => {
+    e.preventDefault();
+    addShopping($('#shopInput').value);
+    $('#shopInput').value = '';
+  });
+  $('#shopClear').addEventListener('click', () => {
+    state.shopping = state.shopping.filter(s => !s.done);
+    save();
+    renderShopping();
+  });
+  $('#shopShare').addEventListener('click', shareShopping);
   $('#exportBtn').addEventListener('click', exportData);
   $('#importFile').addEventListener('change', e => e.target.files[0] && importData(e.target.files[0]));
   $('#notifyBtn').addEventListener('click', enableNotify);
   $('#calendarAllBtn').addEventListener('click', () => downloadCalendar(state.items, 'voorraad-herinneringen.ics'));
 
   render();
+  renderShopping();
   notifyOnce();
   // Scanner al op de achtergrond klaarzetten, zodat hij meteen werkt.
   setTimeout(() => getDetector().catch(() => {}), 500);

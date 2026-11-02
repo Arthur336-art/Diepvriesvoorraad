@@ -10,6 +10,8 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 - Tik op Eruit en scan opnieuw. Bij meerdere stuks gaat er één af. Heb je hetzelfde product meerdere keren, dan kies je welke.
 - Geen barcode? Voeg toe zonder barcode of kies uit de lijst.
 - Tik op een product om het aan te passen.
+- 🍳 bovenaan toont gerechten met wat eerst op moet.
+- 🛒 bovenaan is je boodschappenlijst. Haal je het laatste stuk van iets eruit, dan vraagt de app of het op de lijst moet.
 
 ## Meldingen
 

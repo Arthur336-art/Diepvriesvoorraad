@@ -157,8 +157,38 @@ td, th { padding: 6px 4px; border-bottom: 1px solid var(--border); text-align: l
 .toast {
   position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom));
   transform: translateX(-50%); background: var(--text); color: var(--bg);
-  padding: 10px 16px; border-radius: 10px; z-index: 10; max-width: calc(100vw - 32px);
+  padding: 10px 16px; border-radius: 10px; z-index: 10; width: max-content; max-width: calc(100vw - 32px);
+  display: flex; align-items: center; gap: 12px;
 }
+.toast button { background: var(--primary); color: #fff; padding: 8px 12px; white-space: nowrap; }
 
 form label.check { display: flex; align-items: center; gap: 10px; color: var(--text); margin-top: 12px; }
 form label.check input { width: 22px; height: 22px; margin: 0; }
+
+.head-btns { display: flex; gap: 2px; }
+.icon-btn { position: relative; }
+.dot {
+  position: absolute; top: 0; right: 0; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--bad); color: #fff; font-size: .7rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.recipe { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-top: 10px; }
+.recipe h4 { margin: 0 0 6px; font-size: 1rem; }
+.recipe p { margin: 6px 0; font-size: .9rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips .badge { font-weight: 500; }
+.recipe a { color: var(--primary); font-size: .9rem; }
+
+#shopForm { margin-top: 0; }
+#shopForm input { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); }
+#shopForm button { flex: 0 0 auto; }
+#shopList { list-style: none; padding: 0; margin: 12px 0 0; }
+#shopList li {
+  display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid var(--border);
+}
+#shopList li input { width: 22px; height: 22px; margin: 0; flex: 0 0 auto; }
+#shopList li span { flex: 1; }
+#shopList li.done span { text-decoration: line-through; color: var(--muted); }
+#shopList li button { background: transparent; color: var(--muted); padding: 4px 8px; }
+#shopDlg .row { align-items: stretch; }
