@@ -971,9 +971,9 @@ async function shareShopping() {
 
 const MEAT_CATS = ['rundvlees', 'varken', 'gehakt', 'gevogelte', 'beleg'];
 const FISH_CATS = ['vis_vet', 'vis_mager', 'schaaldier'];
-const DIET_ALLOWED = { veg: ['veg'], fish: ['veg', 'fish'], meat: ['veg', 'fish', 'meat'] };
+const DIET_ALLOWED = { veg: ['veg', 'any'], fish: ['veg', 'fish', 'any'], meat: ['veg', 'fish', 'meat', 'any'] };
 const DIET_LABEL = { veg: 'vegetarisch', fish: 'vis en vegetarisch', meat: 'alles' };
-const DIET_ICON = { veg: '🥦', fish: '🐟', meat: '🥩' };
+const DIET_ICON = { veg: '🥦', fish: '🐟', meat: '🥩', any: '' };
 
 // Eetstijl afleiden uit wat er in je diepvries en frigo ligt.
 function autoDiet() {
@@ -991,59 +991,138 @@ function dailyRank(name) {
   return h;
 }
 
+// ---------- Ingrediënten vergelijken ----------
+
+// Producten van deze soorten zijn zelf een gerecht. Ze passen alleen bij een ingrediënt
+// dat hun soort noemt (@soep) of met ! gemarkeerd is. Zo telt "kippensoep" niet als kip.
+const DISH_CATS = ['soep', 'maaltijd', 'kantenklaar', 'ijs'];
+
+function plain(text) {
+  return ` ${text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')} `;
+}
+
+const ingCache = new Map();
+function parseIng(raw) {
+  if (ingCache.has(raw)) return ingCache.get(raw);
+  let s = raw;
+  const ing = { optional: false, pantry: false, dish: false, words: [], cats: [] };
+  for (;;) {
+    if (s[0] === '?') { ing.optional = true; s = s.slice(1); }
+    else if (s[0] === '!') { ing.dish = true; s = s.slice(1); }
+    else break;
+  }
+  if (s[0] === '~') { ing.pantry = true; ing.label = s.slice(1); ingCache.set(raw, ing); return ing; }
+  let label, list;
+  if (s[0] === '@') { const [cat, lab] = s.slice(1).split('='); list = ['@' + cat]; label = lab || CAT[cat]?.label.toLowerCase() || cat; }
+  else if (s.includes('=')) { [label, list] = s.split('='); list = list.split('|'); }
+  else { label = s; list = [s]; }
+  ing.label = label;
+  for (const w of list) {
+    if (w.startsWith('@')) { ing.cats.push(w.slice(1)); continue; }
+    const start = w.startsWith('^');
+    const end = w.endsWith('$');
+    const core = plain(w.replace(/^\^/, '').replace(/\$$/, '')).trim().replace(/[.*+?()[\]\\|{}]/g, '\\$&');
+    ing.words.push(new RegExp(`${start ? '[^a-z]' : ''}${core}${end ? '[^a-z]' : ''}`));
+  }
+  ingCache.set(raw, ing);
+  return ing;
+}
+
+// Sla, komkommer en kruiden zijn geen kookgroenten: ze tellen niet als "groenten naar keuze".
+const NOT_COOKING = /sla|salade|rucola|ijsberg|komkommer|concombre|kruiden|peterselie|basilicum|bieslook|kers /;
+
+function ingMatches(ing, item) {
+  const name = plain(item.name);
+  if (ing.words.some(re => re.test(name)) && (!DISH_CATS.includes(item.category) || ing.dish)) return true;
+  if (ing.cats.includes(item.category)) return !(item.category === 'groenten' && NOT_COOKING.test(name));
+  return false;
+}
+
+// Kijkt per gerecht wat je hebt, wat je mist en wat uit de kast komt.
+// Elk product telt maar voor één ingrediënt; het dringendste gaat eerst.
+function checkRecipe(r, stock) {
+  const used = new Set();
+  const have = [];
+  const missing = [];
+  const pantry = [];
+  const ings = r.ing.map(parseIng);
+  const take = ing => {
+    const options = stock.filter(i => !used.has(i.id) && ingMatches(ing, i)).sort((a, b) => a.s.left - b.s.left);
+    if (!options.length) return null;
+    used.add(options[0].id);
+    return options[0];
+  };
+  for (const ing of ings.filter(x => !x.pantry && !x.optional)) {
+    const hit = take(ing);
+    if (hit) have.push({ item: hit, required: true }); else missing.push(ing.label);
+  }
+  for (const ing of ings.filter(x => !x.pantry && x.optional)) {
+    const hit = take(ing);
+    if (hit) have.push({ item: hit, required: false });
+  }
+  for (const ing of ings.filter(x => x.pantry)) pantry.push(ing.label);
+  return { have, missing, pantry };
+}
+
 // Score per gerecht: producten die te lang liggen tellen het zwaarst.
 function suggestRecipes(diet) {
   const weight = { bad: 5, warn: 3, ok: 1 };
   const banned = diet === 'veg' ? [...MEAT_CATS, ...FISH_CATS] : diet === 'fish' ? MEAT_CATS : [];
   const stock = state.items.filter(i => !banned.includes(i.category)).map(i => ({ ...i, s: status(i) }));
-  const allowed = RECIPES.filter(r => DIET_ALLOWED[diet].includes(r.diet));
-  const pick = list => {
-    // Per soort maar één product laten meetellen, het dringendste.
-    const best = {};
-    for (const i of list) if (!best[i.category] || i.s.left < best[i.category].s.left) best[i.category] = i;
-    return Object.values(best);
-  };
-  const have = [];
-  const discover = [];
-  for (const r of allowed) {
-    const mains = stock.filter(i => r.main.includes(i.category));
-    const extras = pick(stock.filter(i => r.extra.includes(i.category) && !mains.includes(i)));
-    if (mains.length) {
-      const used = [...pick(mains), ...extras];
-      const score = used.reduce((n, i) => n + weight[i.s.level] * (mains.includes(i) ? 2 : 1), 0);
-      const urgent = used.some(i => i.s.level !== 'ok');
-      have.push({ r, used: used.sort((a, b) => a.s.left - b.s.left), score: score + (urgent ? 100 : 0) });
-    } else {
-      discover.push({ r, used: extras, score: extras.length * 1000 + (dailyRank(r.name) % 1000) });
-    }
+  const ready = [], almost = [], discover = [];
+  for (const r of RECIPES.filter(x => DIET_ALLOWED[diet].includes(x.diet))) {
+    const c = checkRecipe(r, stock);
+    const reqHave = c.have.filter(h => h.required).length;
+    const score = c.have.reduce((n, h) => n + weight[h.item.s.level] * (h.required ? 2 : 1), 0)
+      + (c.have.some(h => h.item.s.level !== 'ok') ? 100 : 0);
+    const entry = { r, ...c, score };
+    if (!c.missing.length && reqHave) ready.push(entry);
+    else if (c.missing.length === 1 && reqHave) almost.push(entry);
+    else discover.push({ ...entry, score: c.have.length * 1000 + (dailyRank(r.name) % 1000) });
   }
+  const byScore = (a, b) => b.score - a.score;
   return {
-    have: have.sort((a, b) => b.score - a.score).slice(0, 10),
-    discover: discover.sort((a, b) => b.score - a.score).slice(0, 8),
+    ready: ready.sort(byScore).slice(0, 12),
+    almost: almost.sort(byScore).slice(0, 8),
+    discover: discover.sort(byScore).slice(0, 8),
   };
 }
 
-function recipeCard({ r, used }, diet, missing) {
+function recipeCard(x, diet) {
+  const { r, have, missing, pantry } = x;
   const card = document.createElement('div');
   card.className = 'recipe';
-  card.innerHTML = '<h4><span></span><span class="diet"></span></h4><div class="chips"></div><p class="need hidden"></p><p class="tip"></p><a target="_blank" rel="noopener">Recept zoeken →</a>';
+  card.innerHTML = '<h4><span></span><span class="diet"></span></h4><div class="chips"></div><p class="need hidden"></p><p class="pantry hidden"></p><p class="tip"></p><a target="_blank" rel="noopener">Recept zoeken →</a>';
   card.querySelector('h4 span').textContent = r.name;
-  card.querySelector('.diet').textContent = `${DIET_ICON[r.diet]} ${{ veg: 'vegetarisch', fish: 'vis', meat: 'vlees' }[r.diet]}`;
+  card.querySelector('.diet').textContent = r.diet === 'any' ? '' : `${DIET_ICON[r.diet]} ${{ veg: 'vegetarisch', fish: 'vis', meat: 'vlees' }[r.diet]}`;
   const chips = card.querySelector('.chips');
-  for (const i of used) {
+  for (const { item } of have.slice().sort((a, b) => a.item.s.left - b.item.s.left)) {
     const c = document.createElement('span');
-    c.className = `badge ${i.s.level}`;
-    c.textContent = `${LOC_ICON[i.location]} ${i.name}`;
+    c.className = `badge ${item.s.level}`;
+    c.textContent = `${LOC_ICON[item.location]} ${item.name}`;
     chips.append(c);
   }
-  if (missing) {
+  if (missing.length) {
     const need = card.querySelector('.need');
     need.classList.remove('hidden');
-    need.textContent = 'Nog kopen: ' + r.main.map(c => CAT[c].label.toLowerCase()).join(' of ');
+    need.textContent = 'Nog nodig: ' + missing.join(', ');
+  }
+  if (pantry.length) {
+    const p = card.querySelector('.pantry');
+    p.classList.remove('hidden');
+    p.textContent = 'Uit de kast: ' + pantry.join(', ');
   }
   card.querySelector('.tip').textContent = r.tip;
   const q = `recept ${r.name}${diet === 'veg' && !/vegetari|veggie/i.test(r.name) ? ' vegetarisch' : ''}`;
   card.querySelector('a').href = `https://www.google.com/search?q=${encodeURIComponent(q)}`;
+  if (missing.length) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'secondary shop-add';
+    btn.textContent = '🛒 Zet op mijn lijst';
+    btn.addEventListener('click', () => { missing.forEach(m => addShopping(m)); btn.disabled = true; btn.textContent = '✓ Op je lijst'; });
+    card.append(btn);
+  }
   return card;
 }
 
@@ -1052,27 +1131,30 @@ function renderCook() {
   const diet = currentDiet();
   document.querySelectorAll('#dietTabs button').forEach(b => b.classList.toggle('active', b.dataset.diet === choice));
   $('#dietInfo').textContent = choice === 'auto'
-    ? (state.items.length
-      ? `Op basis van je voorraad: ${DIET_LABEL[diet]}. Wat eerst op moet staat bovenaan.`
-      : 'Wat eerst op moet staat bovenaan.')
+    ? (state.items.length ? `Op basis van je voorraad: ${DIET_LABEL[diet]}.` : '')
     : `Je ziet alleen gerechten: ${DIET_LABEL[diet]}.`;
   const box = $('#cookList');
   box.replaceChildren();
-  const { have, discover } = suggestRecipes(diet);
-  const head = text => { const h = document.createElement('h3'); h.className = 'cook-head'; h.textContent = text; box.append(h); };
-  head('Met wat je hebt');
-  if (!have.length) {
+  const { ready, almost, discover } = suggestRecipes(diet);
+  const head = (text, sub) => {
+    const h = document.createElement('h3'); h.className = 'cook-head'; h.textContent = text; box.append(h);
+    if (sub) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = sub; box.append(p); }
+  };
+  head('Met wat je hebt', 'Alles uit je frigo en diepvries is er. Wat eerst op moet staat bovenaan.');
+  if (!ready.length) {
     const p = document.createElement('p');
     p.className = 'muted';
-    p.textContent = state.items.length
-      ? 'Geen gerecht gevonden met wat je hebt. Kies bij je producten een soort, dan vindt de app meer.'
-      : 'Je voorraad is leeg.';
+    p.textContent = state.items.length ? 'Nog geen volledig gerecht met wat je hebt. Kijk bij "Bijna".' : 'Je voorraad is leeg.';
     box.append(p);
   }
-  for (const x of have) box.append(recipeCard(x, diet, false));
+  for (const x of ready) box.append(recipeCard(x, diet));
+  if (almost.length) {
+    head('Bijna', 'Je mist maar één ding.');
+    for (const x of almost) box.append(recipeCard(x, diet));
+  }
   if (discover.length) {
-    head('Nieuw om te proberen');
-    for (const x of discover) box.append(recipeCard(x, diet, true));
+    head('Nieuw om te proberen', 'Wisselt elke dag.');
+    for (const x of discover) box.append(recipeCard(x, diet));
   }
 }
 

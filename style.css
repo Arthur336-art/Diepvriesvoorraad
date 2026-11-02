@@ -247,3 +247,6 @@ form label.check input { width: 22px; height: 22px; margin: 0; }
 .recipe .need { font-size: .85rem; color: var(--warn); margin: 6px 0 0; }
 .recipe .diet { font-size: .75rem; color: var(--muted); font-weight: 500; margin-left: 6px; }
 #scanDlg.batch #reader { aspect-ratio: 16 / 7; }
+
+.recipe .pantry { font-size: .8rem; color: var(--muted); margin: 4px 0 0; }
+.recipe .shop-add { margin-top: 8px; padding: 6px 10px; font-size: .85rem; }
