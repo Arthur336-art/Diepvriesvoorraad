@@ -955,6 +955,7 @@ function showFormPhoto(url) {
 // De server krijgt alleen datums, geen namen.
 
 const PUSH_URL_KEY = 'dvv.pushServer';
+const DEFAULT_PUSH_SERVER = 'https://voorraad-push.artbox2009.workers.dev';
 
 function stockForSw() {
   return state.items.map(i => {
@@ -1095,7 +1096,7 @@ async function renderPushStatus() {
   const server = pushServer();
   const sub = await pushSubscription().catch(() => null);
   const on = !!(server && sub);
-  $('#pushUrl').value = server;
+  $('#pushUrl').value = server || DEFAULT_PUSH_SERVER;
   $('#pushStatus').textContent = on
     ? 'Aan. Je krijgt een melding in de ochtend als er iets op moet, ook als de app dicht is.'
     : '';
