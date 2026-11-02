@@ -1,0 +1,539 @@
+'use strict';
+
+// Richtlijnen houdbaarheid in dagen. Diepvries op -18 °C, frigo op 4 °C.
+const CATEGORIES = [
+  { id: 'rundvlees',  label: 'Rund / lam / kalf',       diepvries: 270, frigo: 3 },
+  { id: 'varken',     label: 'Varkensvlees',            diepvries: 180, frigo: 3 },
+  { id: 'gehakt',     label: 'Gehakt / worst',          diepvries: 90,  frigo: 1 },
+  { id: 'gevogelte',  label: 'Kip / gevogelte',         diepvries: 270, frigo: 2 },
+  { id: 'vis_vet',    label: 'Vette vis (zalm, makreel)', diepvries: 90, frigo: 2 },
+  { id: 'vis_mager',  label: 'Magere vis (kabeljauw)',  diepvries: 180, frigo: 2 },
+  { id: 'schaaldier', label: 'Garnalen / schaaldieren', diepvries: 90,  frigo: 2 },
+  { id: 'groenten',   label: 'Groenten',                diepvries: 300, frigo: 7 },
+  { id: 'fruit',      label: 'Fruit',                   diepvries: 300, frigo: 7 },
+  { id: 'brood',      label: 'Brood / gebak',           diepvries: 90,  frigo: 5 },
+  { id: 'maaltijd',   label: 'Restjes / bereide maaltijd', diepvries: 90, frigo: 3 },
+  { id: 'soep',       label: 'Soep / saus',             diepvries: 120, frigo: 4 },
+  { id: 'zuivel',     label: 'Melk / yoghurt',          diepvries: 90,  frigo: 5 },
+  { id: 'kaas',       label: 'Kaas',                    diepvries: 120, frigo: 21 },
+  { id: 'beleg',      label: 'Vleeswaren / beleg',      diepvries: 60,  frigo: 4 },
+  { id: 'ijs',        label: 'IJs',                     diepvries: 60,  frigo: 1 },
+  { id: 'kantenklaar',label: 'Kant-en-klaar product',   diepvries: 180, frigo: 5 },
+  { id: 'eieren',     label: 'Eieren',                  diepvries: 270, frigo: 28 },
+  { id: 'ander',      label: 'Ander',                   diepvries: 180, frigo: 5 },
+];
+const CAT = Object.fromEntries(CATEGORIES.map(c => [c.id, c]));
+
+// Trefwoorden om een soort te raden uit naam of Open Food Facts categorieën.
+const GUESS = [
+  ['ijs', ['ice-cream', 'ijs', 'glace', 'roomijs']],
+  ['gehakt', ['gehakt', 'minced', 'hache', 'sausage', 'worst', 'saucisse', 'burger']],
+  ['gevogelte', ['chicken', 'kip', 'poulet', 'poultry', 'kalkoen', 'turkey', 'eend']],
+  ['vis_vet', ['salmon', 'zalm', 'saumon', 'makreel', 'mackerel', 'haring', 'tonijn']],
+  ['schaaldier', ['shrimp', 'garnaal', 'garnalen', 'scampi', 'mosselen', 'crevette']],
+  ['vis_mager', ['fish', 'vis', 'poisson', 'kabeljauw', 'cod', 'pangasius', 'koolvis', 'fishstick']],
+  ['varken', ['pork', 'varken', 'porc', 'spek', 'bacon', 'ham']],
+  ['rundvlees', ['beef', 'rund', 'boeuf', 'steak', 'lam', 'kalf', 'meat', 'vlees']],
+  ['kaas', ['cheese', 'kaas', 'fromage']],
+  ['zuivel', ['milk', 'melk', 'yogurt', 'yoghurt', 'dairy', 'zuivel', 'lait']],
+  ['beleg', ['charcuterie', 'salami', 'vleeswaren', 'cold-cut']],
+  ['brood', ['bread', 'brood', 'pain', 'pastry', 'gebak', 'croissant', 'pizza']],
+  ['soep', ['soup', 'soep', 'soupe', 'sauce', 'saus']],
+  ['groenten', ['vegetable', 'groente', 'legume', 'spinazie', 'erwt', 'bonen', 'fries', 'frieten', 'friet', 'potato']],
+  ['fruit', ['fruit', 'berries', 'bessen', 'aardbei', 'framboos']],
+  ['eieren', ['egg', 'eieren', 'oeuf']],
+  ['kantenklaar', ['meal', 'maaltijd', 'frozen', 'diepvries', 'surgel', 'lasagne']],
+];
+
+const DAY = 86400000;
+const WARN_DAYS = { diepvries: 30, frigo: 1 };
+const STORE_KEY = 'dvv.items.v1';
+const PRODUCTS_KEY = 'dvv.products.v1';
+const LOC_ICON = { diepvries: '❄️', frigo: '🧊' };
+
+const $ = s => document.querySelector(s);
+const state = {
+  items: load(STORE_KEY, []),
+  products: load(PRODUCTS_KEY, {}),
+  filter: 'alles',
+  query: '',
+  mode: 'in',
+  editingId: null,
+};
+
+function load(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; }
+  catch { return fallback; }
+}
+function save() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state.items));
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(state.products));
+  } catch { toast('Opslaan mislukt'); }
+}
+
+function today() {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function toISO(d) {
+  const z = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+}
+function fromISO(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+function fmtDate(s) {
+  return fromISO(s).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+function uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+// Houdbaar-tot datum: THT van de verpakking als die er is, anders erin-datum + richtlijn.
+function limitDate(item) {
+  const guide = new Date(fromISO(item.added).getTime() + CAT[item.category][item.location] * DAY);
+  if (!item.expiry) return guide;
+  const exp = fromISO(item.expiry);
+  // In de diepvries telt de richtlijn als die later valt dan de THT van een vers product.
+  return item.location === 'diepvries' ? new Date(Math.max(exp, guide)) : exp;
+}
+
+function status(item) {
+  const left = Math.round((limitDate(item) - today()) / DAY);
+  const days = Math.round((today() - fromISO(item.added)) / DAY);
+  let level = 'ok';
+  if (left < 0) level = 'bad';
+  else if (left <= WARN_DAYS[item.location]) level = 'warn';
+  return { left, days, level };
+}
+
+function humanDays(n) {
+  if (n >= 60) return `${Math.round(n / 30)} maanden`;
+  if (n >= 14) return `${Math.round(n / 7)} weken`;
+  return n === 1 ? '1 dag' : `${n} dagen`;
+}
+function badgeText(s) {
+  if (s.left < 0) return `${humanDays(-s.left)} te lang`;
+  if (s.left === 0) return 'Vandaag op';
+  return `nog ${humanDays(s.left)}`;
+}
+
+// ---------- Weergave ----------
+
+function render() {
+  const all = state.items.map(i => ({ ...i, s: status(i) }));
+  $('#cntAlles').textContent = all.length ? `(${all.length})` : '';
+  $('#cntDiepvries').textContent = count(all, 'diepvries');
+  $('#cntFrigo').textContent = count(all, 'frigo');
+
+  const bad = all.filter(i => i.s.level === 'bad').length;
+  const warn = all.filter(i => i.s.level === 'warn').length;
+  const bar = $('#alertBar');
+  if (bad) {
+    bar.textContent = `${bad} ${bad === 1 ? 'product ligt' : 'producten liggen'} er te lang in.` +
+      (warn ? ` ${warn} binnenkort.` : '');
+    bar.className = 'alert';
+  } else if (warn) {
+    bar.textContent = `${warn} ${warn === 1 ? 'product moet' : 'producten moeten'} binnenkort op.`;
+    bar.className = 'alert warn';
+  } else {
+    bar.className = 'alert hidden';
+  }
+
+  const q = state.query.toLowerCase();
+  const shown = all
+    .filter(i => state.filter === 'alles' || i.location === state.filter)
+    .filter(i => !q || i.name.toLowerCase().includes(q) || CAT[i.category].label.toLowerCase().includes(q))
+    .sort((a, b) => a.s.left - b.s.left);
+
+  const list = $('#list');
+  list.replaceChildren();
+  if (!shown.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = state.items.length ? 'Niets gevonden.' : 'Nog niets in voorraad. Tik op Erin om te scannen.';
+    list.append(p);
+    return;
+  }
+  for (const i of shown) {
+    const el = document.createElement('div');
+    el.className = `item ${i.s.level}`;
+    el.innerHTML = `
+      <span class="loc"></span>
+      <div class="main">
+        <div class="name"></div>
+        <div class="meta"></div>
+      </div>
+      <span class="badge ${i.s.level}"></span>`;
+    el.querySelector('.loc').textContent = LOC_ICON[i.location];
+    el.querySelector('.name').textContent = (i.qty > 1 ? `${i.qty}× ` : '') + i.name;
+    el.querySelector('.meta').textContent =
+      `${CAT[i.category].label} · erin ${fmtDate(i.added)} (${i.s.days ? humanDays(i.s.days) + " geleden" : "vandaag"})`;
+    el.querySelector('.badge').textContent = badgeText(i.s);
+    el.addEventListener('click', () => openItem({ id: i.id }));
+    list.append(el);
+  }
+}
+function count(all, loc) {
+  const n = all.filter(i => i.location === loc).length;
+  return n ? `(${n})` : '';
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2800);
+}
+
+// ---------- Scanner ----------
+
+let scanner = null;
+let scanBusy = false;
+
+async function openScan(mode) {
+  state.mode = mode;
+  $('#scanTitle').textContent = mode === 'in' ? 'Scan wat erin gaat' : 'Scan wat eruit gaat';
+  $('#noBarcode').textContent = mode === 'in' ? 'Zonder barcode toevoegen' : 'Kies uit de lijst';
+  $('#manualCode').value = '';
+  $('#scanMsg').textContent = 'Richt de camera op de barcode.';
+  $('#scanDlg').showModal();
+  scanBusy = false;
+  await startCamera();
+}
+
+async function startCamera() {
+  if (!window.Html5Qrcode) {
+    $('#scanMsg').textContent = 'Scanner niet geladen. Typ de barcode of voeg toe zonder barcode.';
+    return;
+  }
+  try {
+    const formats = [
+      'EAN_13', 'EAN_8', 'UPC_A', 'UPC_E', 'CODE_128', 'CODE_39', 'ITF', 'QR_CODE',
+    ].map(f => Html5QrcodeSupportedFormats[f]);
+    scanner = new Html5Qrcode('reader', {
+      formatsToSupport: formats,
+      useBarCodeDetectorIfSupported: true,
+      verbose: false,
+    });
+    await scanner.start(
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.45) }) },
+      code => onCode(code),
+      () => {}
+    );
+  } catch (e) {
+    scanner = null;
+    $('#scanMsg').textContent = 'Geen toegang tot de camera. Typ de barcode hieronder.';
+  }
+}
+
+async function stopCamera() {
+  if (!scanner) return;
+  try { if (scanner.isScanning) await scanner.stop(); scanner.clear(); } catch {}
+  scanner = null;
+}
+
+async function closeScan() {
+  await stopCamera();
+  if ($('#scanDlg').open) $('#scanDlg').close();
+}
+
+async function onCode(code) {
+  if (scanBusy) return;
+  scanBusy = true;
+  code = String(code).trim();
+  if (navigator.vibrate) navigator.vibrate(80);
+  await closeScan();
+  if (state.mode === 'in') await handleIn(code);
+  else handleOut(code);
+}
+
+// ---------- Erin ----------
+
+async function handleIn(code) {
+  let prod = code ? state.products[code] : null;
+  if (code && !prod) {
+    toast('Product opzoeken...');
+    prod = await lookup(code);
+  }
+  openItem({ barcode: code, prod });
+}
+
+async function lookup(code) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    const res = await fetch(
+      `https://world.openfoodfacts.org/api/v2/product/${encodeURIComponent(code)}.json` +
+      '?fields=product_name,product_name_nl,product_name_fr,brands,categories_tags',
+      { signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data.status !== 1 || !data.product) return null;
+    const p = data.product;
+    const base = p.product_name_nl || p.product_name || p.product_name_fr || '';
+    const brand = (p.brands || '').split(',')[0].trim();
+    const name = [brand, base].filter(Boolean).join(' ').trim();
+    if (!name) return null;
+    return { name, category: guessCategory(name + ' ' + (p.categories_tags || []).join(' ')) };
+  } catch {
+    return null;
+  }
+}
+
+function guessCategory(text) {
+  const t = text.toLowerCase();
+  for (const [id, words] of GUESS) if (words.some(w => t.includes(w))) return id;
+  return null;
+}
+
+function fillCategories() {
+  const sel = $('#itemForm').elements.category;
+  sel.replaceChildren(...CATEGORIES.map(c => new Option(c.label, c.id)));
+}
+
+function openItem({ id = null, barcode = '', prod = null }) {
+  const f = $('#itemForm');
+  f.reset();
+  state.editingId = id;
+  const item = id ? state.items.find(i => i.id === id) : null;
+  const src = item || {
+    barcode,
+    name: prod?.name || '',
+    location: prod?.location || (state.filter === 'frigo' ? 'frigo' : 'diepvries'),
+    category: prod?.category || 'ander',
+    qty: 1,
+    added: toISO(today()),
+    expiry: '',
+  };
+  f.dataset.barcode = src.barcode || '';
+  f.elements.name.value = src.name;
+  f.elements.location.value = src.location;
+  f.elements.category.value = src.category;
+  f.elements.qty.value = src.qty;
+  f.elements.added.value = src.added;
+  f.elements.expiry.value = src.expiry || '';
+  $('#itemTitle').textContent = item ? 'Bewerken' : 'Erin';
+  $('#itemBarcode').textContent = src.barcode ? `Barcode ${src.barcode}` : '';
+  $('#itemDelete').classList.toggle('hidden', !item);
+  $('#itemDelete').textContent = item && item.qty > 1 ? 'Eén eruit' : 'Eruit';
+  updateHint();
+  $('#itemDlg').showModal();
+  if (!src.name) setTimeout(() => f.elements.name.focus(), 50);
+}
+
+function updateHint() {
+  const f = $('#itemForm');
+  const c = CAT[f.elements.category.value];
+  const loc = f.elements.location.value;
+  $('#itemHint').textContent =
+    `Richtlijn ${loc}: ${humanDays(c[loc])}. ` +
+    (loc === 'frigo' ? 'Staat er een THT op de verpakking, vul die in.' : 'Ingevroren op de erin-datum.');
+}
+
+function saveItem(e) {
+  e.preventDefault();
+  const f = $('#itemForm');
+  const data = {
+    barcode: f.dataset.barcode || '',
+    name: f.elements.name.value.trim(),
+    location: f.elements.location.value,
+    category: f.elements.category.value,
+    qty: Math.max(1, parseInt(f.elements.qty.value, 10) || 1),
+    added: f.elements.added.value || toISO(today()),
+    expiry: f.elements.expiry.value || '',
+  };
+  if (!data.name) return;
+  if (state.editingId) {
+    Object.assign(state.items.find(i => i.id === state.editingId), data);
+    toast('Aangepast');
+  } else {
+    state.items.push({ id: uid(), ...data });
+    toast(`${data.name} staat in de ${data.location}`);
+  }
+  if (data.barcode) {
+    state.products[data.barcode] = { name: data.name, category: data.category, location: data.location };
+  }
+  save();
+  $('#itemDlg').close();
+  render();
+}
+
+// ---------- Eruit ----------
+
+function handleOut(code) {
+  const matches = state.items
+    .filter(i => !code || i.barcode === code)
+    .sort((a, b) => status(a).left - status(b).left);
+  if (!matches.length) {
+    const known = state.products[code];
+    toast(known ? `${known.name} zit niet in de voorraad` : 'Dit product zit niet in de voorraad');
+    return;
+  }
+  if (matches.length === 1 && code) {
+    takeOut(matches[0].id);
+    return;
+  }
+  openPick(matches);
+}
+
+function openPick(matches) {
+  const box = $('#pickList');
+  box.replaceChildren();
+  for (const i of matches) {
+    const s = status(i);
+    const b = document.createElement('button');
+    b.className = 'pick';
+    b.innerHTML = '<span></span><span class="badge"></span>';
+    b.firstChild.textContent = `${LOC_ICON[i.location]} ${i.qty > 1 ? i.qty + '× ' : ''}${i.name} · ${fmtDate(i.added)}`;
+    b.lastChild.textContent = badgeText(s);
+    b.lastChild.classList.add(s.level);
+    b.addEventListener('click', () => { $('#pickDlg').close(); takeOut(i.id); });
+    box.append(b);
+  }
+  $('#pickDlg').showModal();
+}
+
+function takeOut(id) {
+  const idx = state.items.findIndex(i => i.id === id);
+  if (idx < 0) return;
+  const item = state.items[idx];
+  if (item.qty > 1) {
+    item.qty -= 1;
+    toast(`${item.name} eruit, nog ${item.qty} over`);
+  } else {
+    state.items.splice(idx, 1);
+    toast(`${item.name} eruit`);
+  }
+  save();
+  render();
+}
+
+// ---------- Menu ----------
+
+function renderShelfTable() {
+  const rows = CATEGORIES.map(c =>
+    `<tr><td>${c.label}</td><td>${humanDays(c.diepvries)}</td><td>${humanDays(c.frigo)}</td></tr>`).join('');
+  $('#shelfTable').innerHTML =
+    `<table><thead><tr><th>Soort</th><th>Diepvries</th><th>Frigo</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function exportData() {
+  const blob = new Blob(
+    [JSON.stringify({ items: state.items, products: state.products, exported: new Date().toISOString() }, null, 2)],
+    { type: 'application/json' }
+  );
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `voorraad-${toISO(today())}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function importData(file) {
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.items)) throw new Error();
+    const valid = data.items.filter(i => i && i.name && CAT[i.category] && WARN_DAYS[i.location] !== undefined && i.added);
+    if (!confirm(`${valid.length} producten terugzetten? De huidige lijst wordt vervangen.`)) return;
+    state.items = valid.map(i => ({ ...i, id: i.id || uid(), qty: i.qty || 1 }));
+    state.products = data.products || {};
+    save();
+    render();
+    $('#menuDlg').close();
+    toast('Backup teruggezet');
+  } catch {
+    toast('Dit bestand is geen geldige backup');
+  }
+}
+
+async function enableNotify() {
+  if (!('Notification' in window)) { toast('Meldingen werken niet in deze browser'); return; }
+  const p = await Notification.requestPermission();
+  toast(p === 'granted' ? 'Je krijgt een melding bij het openen als iets te lang ligt' : 'Meldingen staan uit');
+  if (p === 'granted') notifyOnce(true);
+}
+
+function notifyOnce(force = false) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const key = 'dvv.notified';
+  const d = toISO(today());
+  if (!force && localStorage.getItem(key) === d) return;
+  const bad = state.items.filter(i => status(i).level === 'bad');
+  if (!bad.length) return;
+  try { localStorage.setItem(key, d); } catch {}
+  const names = bad.slice(0, 3).map(i => i.name).join(', ');
+  new Notification('Te lang in de voorraad', {
+    body: `${bad.length} te lang: ${names}${bad.length > 3 ? '...' : ''}`,
+    icon: 'icon.svg',
+  });
+}
+
+// ---------- Start ----------
+
+function init() {
+  fillCategories();
+  renderShelfTable();
+
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x === t));
+    state.filter = t.dataset.filter;
+    render();
+  }));
+  $('#search').addEventListener('input', e => { state.query = e.target.value; render(); });
+
+  $('#btnIn').addEventListener('click', () => openScan('in'));
+  $('#btnOut').addEventListener('click', () => openScan('out'));
+
+  $('#manualForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const code = $('#manualCode').value.trim();
+    if (code) onCode(code);
+  });
+  $('#noBarcode').addEventListener('click', async () => {
+    await closeScan();
+    if (state.mode === 'in') openItem({});
+    else handleOut('');
+  });
+
+  document.querySelectorAll('[data-close]').forEach(b =>
+    b.addEventListener('click', () => b.closest('dialog').close()));
+  $('#scanDlg').addEventListener('close', stopCamera);
+
+  const f = $('#itemForm');
+  f.addEventListener('submit', saveItem);
+  f.elements.category.addEventListener('change', updateHint);
+  f.querySelectorAll('[name=location]').forEach(r => r.addEventListener('change', updateHint));
+  f.elements.name.addEventListener('blur', () => {
+    if (f.elements.category.value === 'ander') {
+      const g = guessCategory(f.elements.name.value);
+      if (g) { f.elements.category.value = g; updateHint(); }
+    }
+  });
+  $('#itemDelete').addEventListener('click', () => {
+    const id = state.editingId;
+    $('#itemDlg').close();
+    takeOut(id);
+  });
+
+  $('#menuBtn').addEventListener('click', () => $('#menuDlg').showModal());
+  $('#exportBtn').addEventListener('click', exportData);
+  $('#importFile').addEventListener('change', e => e.target.files[0] && importData(e.target.files[0]));
+  $('#notifyBtn').addEventListener('click', enableNotify);
+
+  render();
+  notifyOnce();
+  // Status opnieuw berekenen als de app terug open komt (bv. volgende dag).
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); notifyOnce(); } });
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+init();
