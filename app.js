@@ -599,7 +599,7 @@ function init() {
   // Status opnieuw berekenen als de app terug open komt (bv. volgende dag).
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); notifyOnce(); } });
 
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(r => r.update()).catch(() => {});
 }
 
 init();

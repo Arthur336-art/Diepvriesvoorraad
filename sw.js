@@ -1,11 +1,12 @@
-const CACHE = 'dvv-v2';
+const CACHE = 'dvv-v3';
+const V = '3';
 const FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'manifest.json', 'icon.svg',
-  'vendor/barcode-detector.js', 'vendor/zxing_reader.wasm',
+  './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, 'manifest.json', 'icon.svg',
+  `vendor/barcode-detector.js?v=${V}`, 'vendor/zxing_reader.wasm',
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
@@ -20,8 +21,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.hostname.includes('openfoodfacts')) return;
+  // no-cache: altijd bij de server navragen of er een nieuwe versie is.
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

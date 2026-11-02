@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Diepvriesvoorraad</title>
   <meta name="theme-color" content="#1f6feb">
+  <meta http-equiv="Cache-Control" content="no-cache">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon.svg">
-  <link rel="stylesheet" href="style.css">
-  <script src="vendor/barcode-detector.js" defer></script>
-  <script src="app.js" defer></script>
+  <link rel="stylesheet" href="style.css?v=3">
+  <script src="vendor/barcode-detector.js?v=3" defer></script>
+  <script src="app.js?v=3" defer></script>
 </head>
 <body>
   <header>
@@ -117,6 +118,7 @@
       <input id="importFile" type="file" accept="application/json" hidden>
     </label>
     <button id="notifyBtn" class="secondary full">Meldingen aanzetten</button>
+    <p class="muted">Versie 3</p>
     <h3>Houdbaarheid per soort</h3>
     <div id="shelfTable"></div>
   </dialog>
