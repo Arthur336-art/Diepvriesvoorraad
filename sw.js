@@ -1,5 +1,6 @@
-const CACHE = 'dvv-v5';
-const V = '5';
+const CACHE = 'dvv-v6';
+const V = '6';
+const DATA_CACHE = 'dvv-data';
 const FILES = [
   './', 'index.html', `style.css?v=${V}`, `app.js?v=${V}`, `recipes.js?v=${V}`, 'manifest.json', 'icon.svg',
   `vendor/barcode-detector.js?v=${V}`, 'vendor/zxing_reader.wasm',
@@ -12,15 +13,16 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== DATA_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-// Eigen bestanden: eerst netwerk, dan cache. Productinfo nooit cachen.
+// Eigen bestanden: eerst netwerk, dan cache.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.hostname.includes('openfoodfacts')) return;
+  // Alleen eigen bestanden. Productinfo en de meldingenserver gaan rechtstreeks.
+  if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
   // no-cache: altijd bij de server navragen of er een nieuwe versie is.
   e.respondWith(
     fetch(e.request, { cache: 'no-cache' })
@@ -43,3 +45,28 @@ self.addEventListener('notificationclick', e => {
     })
   );
 });
+
+// Push van de meldingenserver. De server stuurt geen tekst: we maken die hier met je eigen voorraad.
+self.addEventListener('push', e => e.waitUntil(showStockNotification()));
+
+async function showStockNotification() {
+  let items = [];
+  try {
+    const res = await (await caches.open(DATA_CACHE)).match('items.json');
+    if (res) items = await res.json();
+  } catch {}
+  const d = new Date();
+  const z = n => String(n).padStart(2, '0');
+  const today = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const bad = items.filter(i => i.limit < today).map(i => i.name);
+  const warn = items.filter(i => i.limit >= today && i.warnFrom <= today).map(i => i.name);
+  const list = names => names.slice(0, 3).join(', ') + (names.length > 3 ? ` en ${names.length - 3} meer` : '');
+  let title = 'Voorraad';
+  let body = 'Kijk even of alles in je diepvries en frigo nog goed is.';
+  if (bad.length || warn.length) {
+    title = bad.length ? 'Er ligt iets te lang in' : 'Er moet iets op';
+    body = [bad.length && `Te lang: ${list(bad)}.`, warn.length && `Binnenkort op: ${list(warn)}.`].filter(Boolean).join(' ');
+  }
+  try { if (self.navigator.setAppBadge) await self.navigator.setAppBadge(bad.length + warn.length || 0); } catch {}
+  await self.registration.showNotification(title, { body, icon: 'icon.svg', badge: 'icon.svg', tag: 'voorraad' });
+}

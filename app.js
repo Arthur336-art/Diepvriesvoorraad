@@ -101,6 +101,8 @@ function save() {
     localStorage.setItem(PRODUCTS_KEY, JSON.stringify(state.products));
     localStorage.setItem(SHOP_KEY, JSON.stringify(state.shopping));
   } catch { toast('Opslaan mislukt'); }
+  writeSwData();
+  schedulePushSync();
 }
 
 function today() {
@@ -200,6 +202,13 @@ function render() {
       </div>
       <span class="badge ${i.s.level}"></span>`;
     el.querySelector('.loc').textContent = LOC_ICON[i.location];
+    if (i.photo) {
+      const img = document.createElement('img');
+      img.className = 'thumb';
+      img.alt = '';
+      photoUrl(i.id).then(url => { if (url) img.src = url; else img.remove(); });
+      el.querySelector('.loc').replaceWith(img);
+    }
     el.querySelector('.name').textContent = (i.qty > 1 ? `${i.qty}× ` : '') + i.name;
     el.querySelector('.meta').textContent =
       `${CAT[i.category].label} · erin ${fmtDate(i.added)} (${i.s.days ? humanDays(i.s.days) + " geleden" : "vandaag"})`;
@@ -469,6 +478,9 @@ function openItem({ id = null, barcode = '', prod = null }) {
     prod?.name && 'herkend',
   ].filter(Boolean).join(' · ');
   f.elements.calendar.checked = !item && calendarPref();
+  state.pendingPhoto = undefined;
+  showFormPhoto(null);
+  if (item?.photo) photoUrl(item.id).then(url => { if (state.editingId === item.id) showFormPhoto(url); });
   $('#itemDelete').classList.toggle('hidden', !item);
   $('#itemDelete').textContent = item && item.qty > 1 ? 'Eén eruit' : 'Eruit';
   updateHint();
@@ -498,13 +510,24 @@ function saveItem(e) {
     expiry: f.elements.expiry.value || '',
   };
   if (!data.name) return;
-  if (state.editingId) {
-    Object.assign(state.items.find(i => i.id === state.editingId), data);
+  let id = state.editingId;
+  if (id) {
+    Object.assign(state.items.find(i => i.id === id), data);
     toast('Aangepast');
   } else {
-    state.items.push({ id: uid(), ...data });
+    id = uid();
+    state.items.push({ id, ...data });
     toast(`${data.name} staat in de ${data.location}`);
   }
+  const target = state.items.find(i => i.id === id);
+  if (state.pendingPhoto) {
+    target.photo = true;
+    photoPut(id, state.pendingPhoto);
+  } else if (state.pendingPhoto === null) {
+    delete target.photo;
+    photoDel(id);
+  }
+  state.pendingPhoto = undefined;
   if (data.barcode) {
     state.products[data.barcode] = { name: data.name, category: data.category, location: data.location };
   }
@@ -634,6 +657,7 @@ function takeOut(id) {
     toast(`${item.name} eruit, nog ${item.qty} over`);
   } else {
     state.items.splice(idx, 1);
+    if (item.photo) photoDel(item.id);
     const same = i => (item.barcode && i.barcode === item.barcode) || i.name.toLowerCase() === item.name.toLowerCase();
     if (state.items.some(same) || onShoppingList(item.name)) {
       toast(`${item.name} eruit`);
@@ -774,9 +798,15 @@ function renderShelfTable() {
     `<table><thead><tr><th>Soort</th><th>Diepvries</th><th>Frigo</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
-function exportData() {
+async function exportData() {
+  const photos = {};
+  for (const i of state.items) {
+    if (!i.photo) continue;
+    const blob = await photoGet(i.id);
+    if (blob) photos[i.id] = await blobToDataUrl(blob);
+  }
   const blob = new Blob(
-    [JSON.stringify({ items: state.items, products: state.products, shopping: state.shopping, exported: new Date().toISOString() }, null, 2)],
+    [JSON.stringify({ items: state.items, products: state.products, shopping: state.shopping, photos, exported: new Date().toISOString() }, null, 2)],
     { type: 'application/json' }
   );
   const a = document.createElement('a');
@@ -795,6 +825,9 @@ async function importData(file) {
     state.items = valid.map(i => ({ ...i, id: i.id || uid(), qty: i.qty || 1 }));
     state.products = data.products || {};
     state.shopping = Array.isArray(data.shopping) ? data.shopping : state.shopping;
+    for (const [id, url] of Object.entries(data.photos || {})) {
+      try { await photoPut(id, await (await fetch(url)).blob()); } catch {}
+    }
     renderShopping();
     save();
     render();
@@ -843,6 +876,231 @@ async function notifyOnce(force = false) {
     if (reg) { await reg.showNotification(title, opts); return; }
   } catch {}
   try { new Notification(title, opts); } catch {}
+}
+
+// ---------- Foto's ----------
+// Foto's staan in IndexedDB: daar is meer plaats dan in localStorage.
+
+let dbPromise = null;
+function db() {
+  if (!dbPromise) dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open('dvv', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('photos');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+async function photoTx(mode, fn) {
+  const d = await db();
+  return new Promise((resolve, reject) => {
+    const tx = d.transaction('photos', mode);
+    const req = fn(tx.objectStore('photos'));
+    tx.oncomplete = () => resolve(req?.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+const photoUrls = new Map();
+async function photoGet(id) {
+  try { return await photoTx('readonly', st => st.get(id)); } catch { return null; }
+}
+async function photoPut(id, blob) {
+  try {
+    await photoTx('readwrite', st => st.put(blob, id));
+    if (photoUrls.has(id)) URL.revokeObjectURL(photoUrls.get(id));
+    photoUrls.delete(id);
+    render();
+  } catch { toast('Foto opslaan mislukt'); }
+}
+async function photoDel(id) {
+  try { await photoTx('readwrite', st => st.delete(id)); } catch {}
+  if (photoUrls.has(id)) URL.revokeObjectURL(photoUrls.get(id));
+  photoUrls.delete(id);
+}
+async function photoUrl(id) {
+  if (photoUrls.has(id)) return photoUrls.get(id);
+  const blob = await photoGet(id);
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  photoUrls.set(id, url);
+  return url;
+}
+function blobToDataUrl(blob) {
+  return new Promise(resolve => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.readAsDataURL(blob);
+  });
+}
+// Foto verkleinen tot max 480 px, zodat er veel in passen.
+async function shrinkPhoto(file) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, 480 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * scale);
+  c.height = Math.round(bmp.height * scale);
+  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+  bmp.close?.();
+  return new Promise(resolve => c.toBlob(resolve, 'image/jpeg', 0.75));
+}
+function showFormPhoto(url) {
+  const img = $('#itemPhoto');
+  img.classList.toggle('hidden', !url);
+  if (url) img.src = url; else img.removeAttribute('src');
+  $('#itemPhotoDel').classList.toggle('hidden', !url);
+}
+
+// ---------- Meldingen als de app dicht is ----------
+// De service worker leest items.json om de tekst van de melding te maken.
+// De server krijgt alleen datums, geen namen.
+
+const PUSH_URL_KEY = 'dvv.pushServer';
+
+function stockForSw() {
+  return state.items.map(i => {
+    const limit = limitDate(i);
+    const warnFrom = new Date(limit.getTime() - WARN_DAYS[i.location] * DAY);
+    return { name: i.name, location: i.location, limit: toISO(limit), warnFrom: toISO(warnFrom) };
+  });
+}
+
+async function writeSwData() {
+  try {
+    const c = await caches.open('dvv-data');
+    await c.put('items.json', new Response(JSON.stringify(stockForSw()), { headers: { 'Content-Type': 'application/json' } }));
+  } catch {}
+}
+
+// Datums waarop een melding moet komen: begin van oranje, de dag zelf, en daarna wekelijks nog 2 keer.
+function pushDates() {
+  const t = toISO(today());
+  const dates = new Set();
+  let lastPast = '';
+  for (const x of stockForSw()) {
+    const limit = fromISO(x.limit);
+    for (const d of [x.warnFrom, x.limit, toISO(new Date(limit.getTime() + 7 * DAY)), toISO(new Date(limit.getTime() + 14 * DAY))]) {
+      if (d >= t) dates.add(d);
+      else if (d > lastPast) lastPast = d;
+    }
+  }
+  // Eén datum uit het verleden volstaat om een melding te krijgen voor wat nu al te lang ligt.
+  if (lastPast) dates.add(lastPast);
+  return [...dates].sort();
+}
+
+function pushServer() {
+  try { return (localStorage.getItem(PUSH_URL_KEY) || '').replace(/\/+$/, ''); } catch { return ''; }
+}
+
+async function pushSubscription() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+  const reg = await navigator.serviceWorker.ready;
+  return reg.pushManager.getSubscription();
+}
+
+let pushTimer = null;
+function schedulePushSync() {
+  if (!pushServer()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(syncPush, 1500);
+}
+
+async function syncPush() {
+  const server = pushServer();
+  if (!server) return false;
+  try {
+    const sub = await pushSubscription();
+    if (!sub) return false;
+    const res = await fetch(`${server}/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: sub.toJSON(), dates: pushDates() }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+function b64ToBytes(b64) {
+  const s = atob(b64.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - b64.length % 4) % 4));
+  return Uint8Array.from(s, c => c.charCodeAt(0));
+}
+
+async function enablePush(url) {
+  const status = $('#pushStatus');
+  url = url.trim().replace(/\/+$/, '');
+  if (!/^https:\/\/.+/.test(url)) { status.textContent = 'Plak het volledige adres, beginnend met https://'; return; }
+  if (!('PushManager' in window)) {
+    status.textContent = 'Dit werkt alleen als je de app opent via het icoon op je beginscherm (iPhone met iOS 16.4 of nieuwer).';
+    return;
+  }
+  status.textContent = 'Verbinden...';
+  let key;
+  try {
+    const res = await fetch(`${url}/key`);
+    key = (await res.json()).publicKey;
+    if (!key) throw new Error();
+  } catch {
+    status.textContent = 'De server antwoordt niet. Kijk of het adres klopt.';
+    return;
+  }
+  if (await Notification.requestPermission() !== 'granted') {
+    status.textContent = 'Je gaf geen toestemming voor meldingen. Zet ze aan bij Instellingen, Meldingen, Voorraad.';
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    // Andere server dan vroeger: opnieuw inschrijven met de nieuwe sleutel.
+    if (sub && pushServer() !== url) { await sub.unsubscribe(); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+    try { localStorage.setItem(PUSH_URL_KEY, url); } catch {}
+    await writeSwData();
+    if (!await syncPush()) throw new Error();
+    toast('Meldingen staan aan');
+  } catch {
+    status.textContent = 'Inschrijven mislukt. Probeer opnieuw.';
+    return;
+  }
+  renderPushStatus();
+}
+
+async function disablePush() {
+  const server = pushServer();
+  try {
+    const sub = await pushSubscription();
+    if (sub) {
+      if (server) await fetch(`${server}/unsubscribe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+      await sub.unsubscribe();
+    }
+  } catch {}
+  try { localStorage.removeItem(PUSH_URL_KEY); } catch {}
+  toast('Meldingen staan uit');
+  renderPushStatus();
+}
+
+async function testPush() {
+  const sub = await pushSubscription().catch(() => null);
+  if (!sub) { toast('Meldingen staan niet aan'); return; }
+  try {
+    const res = await fetch(`${pushServer()}/test`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+    toast(res.ok ? 'Test verstuurd. Je krijgt zo een melding.' : 'Test mislukt');
+  } catch { toast('Test mislukt'); }
+}
+
+async function renderPushStatus() {
+  const server = pushServer();
+  const sub = await pushSubscription().catch(() => null);
+  const on = !!(server && sub);
+  $('#pushUrl').value = server;
+  $('#pushStatus').textContent = on
+    ? 'Aan. Je krijgt een melding in de ochtend als er iets op moet, ook als de app dicht is.'
+    : '';
+  $('#pushTest').classList.toggle('hidden', !on);
+  $('#pushOff').classList.toggle('hidden', !on);
 }
 
 // ---------- Start ----------
@@ -897,7 +1155,20 @@ function init() {
     takeOut(id);
   });
 
-  $('#menuBtn').addEventListener('click', () => $('#menuDlg').showModal());
+  $('#menuBtn').addEventListener('click', () => { renderPushStatus(); $('#menuDlg').showModal(); });
+  $('#pushForm').addEventListener('submit', e => { e.preventDefault(); enablePush($('#pushUrl').value); });
+  $('#pushTest').addEventListener('click', testPush);
+  $('#pushOff').addEventListener('click', disablePush);
+  $('#itemPhotoInput').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      state.pendingPhoto = await shrinkPhoto(file);
+      showFormPhoto(URL.createObjectURL(state.pendingPhoto));
+    } catch { toast('Foto lezen mislukt'); }
+  });
+  $('#itemPhotoDel').addEventListener('click', () => { state.pendingPhoto = null; showFormPhoto(null); });
   $('#cookBtn').addEventListener('click', () => { renderCook(); $('#cookDlg').showModal(); });
   $('#shopBtn').addEventListener('click', () => { renderShopping(); $('#shopDlg').showModal(); });
   $('#shopForm').addEventListener('submit', e => {
@@ -919,6 +1190,9 @@ function init() {
   render();
   renderShopping();
   notifyOnce();
+  writeSwData();
+  // Bij elke start de datums opnieuw doorsturen: zo blijft de server juist.
+  schedulePushSync();
   // Scanner al op de achtergrond klaarzetten, zodat hij meteen werkt.
   setTimeout(() => getDetector().catch(() => {}), 500);
   // Status opnieuw berekenen als de app terug open komt (bv. volgende dag).

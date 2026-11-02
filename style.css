@@ -192,3 +192,9 @@ form label.check input { width: 22px; height: 22px; margin: 0; }
 #shopList li.done span { text-decoration: line-through; color: var(--muted); }
 #shopList li button { background: transparent; color: var(--muted); padding: 4px 8px; }
 #shopDlg .row { align-items: stretch; }
+
+.photo-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+.photo-row img { width: 72px; height: 72px; object-fit: cover; border-radius: 10px; }
+.item .thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+#pushForm input { margin: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); min-width: 0; }
+#pushForm button { flex: 0 0 auto; }

@@ -9,7 +9,7 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 - Staat er een THT-datum op de verpakking, vul die in. In de frigo telt die datum. In de diepvries telt de langste van THT en richtlijn.
 - Tik op Eruit en scan opnieuw. Bij meerdere stuks gaat er één af. Heb je hetzelfde product meerdere keren, dan kies je welke.
 - Geen barcode? Voeg toe zonder barcode of kies uit de lijst.
-- Tik op een product om het aan te passen.
+- Tik op een product om het aan te passen. Je kunt er ook een foto bij nemen.
 - 🍳 bovenaan toont gerechten met wat eerst op moet.
 - 🛒 bovenaan is je boodschappenlijst. Haal je het laatste stuk van iets eruit, dan vraagt de app of het op de lijst moet.
 
@@ -18,7 +18,7 @@ Je scant wat erin gaat en eruit komt. De app zegt wat er al te lang in ligt, in 
 - Vink bij het opslaan "Herinnering in mijn agenda zetten" aan. Je agenda waarschuwt je op de dag dat het product op moet. In de diepvries ook 7 dagen op voorhand, in de frigo 1 dag.
 - Menu, "Alles in mijn agenda zetten" zet herinneringen voor je hele voorraad in één keer.
 - Menu, "Melding bij openen" geeft een melding als je de app opent en er iets op moet, en een rood getal op het app-icoon.
-- Een webapp op iPhone kan zichzelf niet wakker maken op een datum. Daarom loopt de herinnering via de agenda.
+- Meldingen als de app dicht is: zet de gratis meldingenserver online, zie `server/README.md`.
 
 Kleuren:
 
