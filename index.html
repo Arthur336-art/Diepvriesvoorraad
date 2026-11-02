@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Diepvriesvoorraad</title>
+  <meta name="theme-color" content="#1f6feb">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1>Voorraad</h1>
+    <button id="menuBtn" class="icon-btn" aria-label="Menu">⋮</button>
+  </header>
+
+  <div id="alertBar" class="alert hidden"></div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-filter="alles">Alles <span id="cntAlles"></span></button>
+    <button class="tab" data-filter="diepvries">Diepvries <span id="cntDiepvries"></span></button>
+    <button class="tab" data-filter="frigo">Frigo <span id="cntFrigo"></span></button>
+  </nav>
+
+  <div class="search-wrap">
+    <input id="search" type="search" placeholder="Zoeken..." autocomplete="off">
+  </div>
+
+  <main id="list"></main>
+
+  <div class="actions">
+    <button id="btnIn" class="big in">＋ Erin</button>
+    <button id="btnOut" class="big out">－ Eruit</button>
+  </div>
+
+  <!-- Scanner -->
+  <dialog id="scanDlg">
+    <div class="dlg-head">
+      <h2 id="scanTitle">Scan</h2>
+      <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
+    </div>
+    <div id="reader"></div>
+    <p id="scanMsg" class="muted"></p>
+    <form id="manualForm" class="row">
+      <input id="manualCode" inputmode="numeric" placeholder="Barcode typen">
+      <button type="submit">OK</button>
+    </form>
+    <button id="noBarcode" class="secondary full">Zonder barcode</button>
+  </dialog>
+
+  <!-- Item toevoegen / bewerken -->
+  <dialog id="itemDlg">
+    <form id="itemForm" method="dialog">
+      <div class="dlg-head">
+        <h2 id="itemTitle">Erin</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Sluiten">✕</button>
+      </div>
+      <p id="itemBarcode" class="muted"></p>
+      <label>Naam
+        <input name="name" required autocomplete="off">
+      </label>
+      <label>Waar
+        <div class="seg">
+          <label><input type="radio" name="location" value="diepvries" checked> Diepvries</label>
+          <label><input type="radio" name="location" value="frigo"> Frigo</label>
+        </div>
+      </label>
+      <label>Soort
+        <select name="category"></select>
+      </label>
+      <div class="row">
+        <label>Aantal
+          <input name="qty" type="number" min="1" value="1">
+        </label>
+        <label>Erin op
+          <input name="added" type="date" required>
+        </label>
+      </div>
+      <label>Houdbaar tot (optioneel, THT op verpakking)
+        <input name="expiry" type="date">
+      </label>
+      <p id="itemHint" class="muted"></p>
+      <div class="row">
+        <button type="button" id="itemDelete" class="danger hidden">Verwijderen</button>
+        <button type="submit" class="primary">Opslaan</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Eruit: kies welk item -->
+  <dialog id="pickDlg">
+    <div class="dlg-head">
+      <h2>Welke haal je eruit?</h2>
+      <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
+    </div>
+    <div id="pickList"></div>
+  </dialog>
+
+  <!-- Menu -->
+  <dialog id="menuDlg">
+    <div class="dlg-head">
+      <h2>Menu</h2>
+      <button class="icon-btn" data-close aria-label="Sluiten">✕</button>
+    </div>
+    <button id="exportBtn" class="secondary full">Backup downloaden</button>
+    <label class="secondary full file-btn">Backup terugzetten
+      <input id="importFile" type="file" accept="application/json" hidden>
+    </label>
+    <button id="notifyBtn" class="secondary full">Meldingen aanzetten</button>
+    <h3>Houdbaarheid per soort</h3>
+    <div id="shelfTable"></div>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+</body>
+</html>
